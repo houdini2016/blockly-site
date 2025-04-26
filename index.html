@@ -1,0 +1,232 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ブロックプログラミング</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Blockly CDN -->
+  <script src="https://unpkg.com/blockly@10.4.3/blockly.min.js"></script>
+  <!-- 利用可能なプラグイン -->
+  <script src="https://unpkg.com/@blockly/block-plus-minus@4.0.11/dist/index.js"></script>
+  <script src="https://unpkg.com/@blockly/theme-dark@5.0.10/dist/index.js"></script>
+  <script src="https://unpkg.com/@blockly/toolbox-search@4.0.11/dist/index.js"></script>
+  <style>
+    #blocklyDiv {
+      height: 500px;
+      width: 100%;
+    }
+    #codeOutput, #resultOutput {
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center min-h-screen p-4">
+  <h1 class="text-3xl font-bold mb-4">ブロックプログラミング環境</h1>
+  <div class="w-full max-w-4xl bg-white shadow-lg rounded-lg p-4">
+    <div id="blocklyDiv" class="mb-4"></div>
+    <xml id="toolbox" style="display: none">
+      <category name="ロジック" colour="210">
+        <block type="controls_if"></block>
+        <block type="logic_compare"></block>
+        <block type="logic_operation"></block>
+        <block type="logic_boolean"></block>
+      </category>
+      <category name="ループ" colour="120">
+        <block type="controls_repeat_ext">
+          <value name="TIMES">
+            <shadow type="math_number">
+              <field name="NUM">10</field>
+            </shadow>
+          </value>
+        </block>
+        <block type="controls_whileUntil"></block>
+      </category>
+      <category name="数学" colour="230">
+        <block type="math_number"></block>
+        <block type="math_arithmetic"></block>
+      </category>
+      <category name="出力" colour="160">
+        <block type="text_print">
+          <value name="TEXT">
+            <shadow type="text">
+              <field name="TEXT">こんにちは！</field>
+            </shadow>
+          </value>
+        </block>
+      </category>
+      <category name="ビットマップ" colour="260">
+        <block type="test_field_bitmap"></block>
+      </category>
+      <category name="日付" colour="200">
+        <block type="test_field_date"></block>
+      </category>
+      <category name="変数" colour="330" custom="VARIABLE"></category>
+      <category name="検索" kind="search" colour="0"></category>
+    </xml>
+    <div class="flex flex-col space-y-4">
+      <button id="runButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">コードを実行</button>
+      <h2 class="text-xl font-semibold">生成されたコード:</h2>
+      <pre id="codeOutput" class="bg-gray-200 p-4 rounded"></pre>
+      <h2 class="text-xl font-semibold">実行結果:</h2>
+      <pre id="resultOutput" class="bg-gray-200 p-4 rounded"></pre>
+    </div>
+  </div>
+  <script>
+    // 簡易ビットマップフィールド
+    class CustomBitmapField extends Blockly.FieldTextInput {
+      constructor(value = '0,0,0;0,1,0;0,0,0') {
+        super(value);
+      }
+      static fromJson(options) {
+        return new CustomBitmapField(options['value']);
+      }
+      getValue() {
+        return this.getText().split(';').map(row => row.split(',').map(Number));
+      }
+    }
+    Blockly.fieldRegistry.register('field_bitmap', CustomBitmapField);
+
+    // 簡易日付フィールド
+    class CustomDateField extends Blockly.FieldTextInput {
+      constructor(value = '2025-04-26') {
+        super(value);
+      }
+      static fromJson(options) {
+        return new CustomDateField(options['value']);
+      }
+    }
+    Blockly.fieldRegistry.register('field_date', CustomDateField);
+
+    // カスタムブロック: ビットマップ
+    Blockly.Blocks['test_field_bitmap'] = {
+      init: function () {
+        this.appendDummyInput()
+          .appendField('ビットマップ（例: 0,0,0;0,1,0;0,0,0）:')
+          .appendField(new CustomBitmapField('0,0,0;0,1,0;0,0,0'), 'BITMAP');
+        this.setOutput(true, 'Array');
+        this.setColour(260);
+        this.setTooltip('カンマとセミコロンでピクセルグリッドを入力');
+      }
+    };
+    Blockly.JavaScript['test_field_bitmap'] = function (block) {
+      const bitmap = block.getFieldValue('BITMAP');
+      return [JSON.stringify(bitmap), Blockly.JavaScript.ORDER_ATOMIC];
+    };
+
+    // カスタムブロック: 日付
+    Blockly.Blocks['test_field_date'] = {
+      init: function () {
+        this.appendDummyInput()
+          .appendField('日付（例: 2025-04-26）:')
+          .appendField(new CustomDateField('2025-04-26'), 'DATE');
+        this.setOutput(true, 'String');
+        this.setColour(200);
+        this.setTooltip('日付を入力（YYYY-MM-DD形式）');
+      }
+    };
+    Blockly.JavaScript['test_field_date'] = function (block) {
+      const date = block.getFieldValue('DATE');
+      return [JSON.stringify(date), Blockly.JavaScript.ORDER_ATOMIC];
+    };
+
+    // 簡易バックパック機能（コピー＆ペースト）
+    function initBackpack(workspace) {
+      workspace.addChangeListener((event) => {
+        if (event.type === Blockly.Events.BLOCK_CREATE) {
+          const block = workspace.getBlockById(event.blockId);
+          if (block) {
+            block.setCommentText('コピー可能');
+          }
+        }
+      });
+    }
+
+    // Blocklyワークスペースの初期化
+    const workspace = Blockly.inject('blocklyDiv', {
+      toolbox: document.getElementById('toolbox'),
+      scrollbars: true,
+      trashcan: true,
+      theme: Blockly.Theme.Dark,
+    });
+
+    // プラグイン初期化
+    BlocklyPlusMinus.init(workspace);
+    workspace.registerToolboxCategoryCallback('SEARCH', Blockly.ToolboxSearch.callback);
+    initBackpack(workspace); // 簡易バックパック
+
+    // コード生成
+    function generateCode() {
+      const code = Blockly.JavaScript.workspaceToCode(workspace);
+      document.getElementById('codeOutput').textContent = code;
+      return code;
+    }
+
+    // コード実行
+    function runCode() {
+      const code = generateCode();
+      const resultOutput = document.getElementById('resultOutput');
+      resultOutput.textContent = '';
+
+      const originalConsoleLog = console.log;
+      console.log = function (message) {
+        resultOutput.textContent += message + '\n';
+      };
+
+      try {
+        new Function(code)();
+      } catch (e) {
+        resultOutput.textContent += 'エラー: ' + e.message + '\n';
+      } finally {
+        console.log = originalConsoleLog;
+      }
+    }
+
+    // イベントリスナー
+    document.getElementById('runButton').addEventListener('click', runCode);
+    workspace.addChangeListener(generateCode);
+    generateCode();
+  </script>
+</body>
+</html>
