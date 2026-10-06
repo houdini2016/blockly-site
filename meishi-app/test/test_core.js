@@ -33,8 +33,8 @@ var FULL = {
 
 // ---- business008 -----------------------------------------------------
 test("business008: 肩書と1文字ずつ空けた氏名", function () {
-    var r = run("代表取締役鈴　木　太　郎", FULL);
-    assert.strictEqual(r.text, "営業部長山　田　花　子");
+    var r = run("代表取締役鈴\u3000木\u3000太\u3000郎", FULL);
+    assert.strictEqual(r.text, "営業部長山\u3000田\u3000花\u3000子");
 });
 
 test("business008: 郵便番号（〒は残す）", function () {
@@ -64,8 +64,8 @@ test("business008: 空欄の項目は行ごと消える（FAX・住所2・URL）
 
 // ---- abstract001 -----------------------------------------------------
 test("abstract001: 字下げされた住所2の前の空白は残す", function () {
-    var r = run("〒000-0000\r○○○県○○市○○町00-00-0\r　　　　　  ○○○○○000号", FULL);
-    assert.strictEqual(r.text, "〒123-4567\r東京都千代田区丸の内1-2-3\r　　　　　  サンプルビル5F");
+    var r = run("〒000-0000\r○○○県○○市○○町00-00-0\r\u3000\u3000\u3000\u3000\u3000  ○○○○○000号", FULL);
+    assert.strictEqual(r.text, "〒123-4567\r東京都千代田区丸の内1-2-3\r\u3000\u3000\u3000\u3000\u3000  サンプルビル5F");
 });
 
 test("abstract001: E-mail の値が別の行にあっても置き換わる", function () {
@@ -107,10 +107,29 @@ test("裏面A: 業務内容のテキストは変えない", function () {
     assert.strictEqual(run(a, FULL).text, a);
 });
 
+// ---- LOGO（ロゴデータ無しなら会社名が入る） ---------------------------
+test("LOGO: ロゴデータ無しなら会社名に置き換わる", function () {
+    var r = run("LOGO", { "会社名": "株式会社サンプル", "ロゴデータ": "無し" });
+    assert.strictEqual(r.text, "株式会社サンプル");
+});
+
+test("LOGO: ロゴデータ有りならそのまま（差し込み先なしの警告も出さない）", function () {
+    var rec = { "会社名": "株式会社サンプル", "ロゴデータ": "有り" };
+    var plan = C.planEdits("LOGO", rec);
+    assert.strictEqual(C.applyEditsToString("LOGO", plan.edits), "LOGO");
+    assert.deepStrictEqual(C.unusedFields(rec, plan.used), []);
+});
+
+test("名刺に入れない項目（備考・自由行など）は差し込み先なしの警告に出さない", function () {
+    var rec = { "氏名": "山田太郎", "備考": "急ぎ", "自由行": "一級建築士", "ふりがな": "やまだ", "モール": "楽天" };
+    var plan = C.planEdits("鈴木太郎", rec);
+    assert.deepStrictEqual(C.unusedFields(rec, plan.used), []);
+});
+
 // ---- その他 ---------------------------------------------------------
 test("部署は肩書の前に付く", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });
-    assert.strictEqual(r.text, "営業部　部長");
+    assert.strictEqual(r.text, "営業部\u3000部長");
 });
 
 test("差し込み先がない項目を見つける", function () {
@@ -120,7 +139,7 @@ test("差し込み先がない項目を見つける", function () {
 });
 
 test("CSV: 見出しの別名・引用符・BOM・空行", function () {
-    var csv = "﻿受注番号,デザイン番号,お名前,電話番号,住所,謎の列\r\n" +
+    var csv = "\uFEFF受注番号,デザイン番号,お名前,電話番号,住所,謎の列\r\n" +
               "\"111-222\",business008,\"山田 太郎\",03-0000-1111,\"東京都, 港区\",x\r\n\r\n";
     var res = C.rowsToRecords(C.parseCSV(csv));
     assert.strictEqual(res.records.length, 1);

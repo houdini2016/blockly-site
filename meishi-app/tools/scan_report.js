@@ -23,7 +23,7 @@ data.forEach(function (t) {
         var plan = C.planEdits(l.text, dummy);
         var after = C.applyEditsToString(l.text, plan.edits);
         plan.used.forEach(function (u) { if (fields.indexOf(u) < 0) fields.push(u); });
-        var mark = plan.edits.length === 0 ? "　" : "✓";
+        var mark = plan.edits.length === 0 ? "\u3000" : "✓";
         if (C.hasLeftover(after)) { mark = "⚠"; problems++; }
         out.push("- " + mark + " `" + l.text + "`" + (plan.edits.length ? " → `" + after + "`" : "") +
                  "  (" + l.font + " " + l.size + "pt)");

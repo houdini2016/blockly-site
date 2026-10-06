@@ -1,4 +1,4 @@
-// =====================================================================
+﻿// =====================================================================
 //  名刺自動作成（Adobe Illustrator 用スクリプト）
 //
 //  使い方：Illustrator のメニュー［ファイル］→［スクリプト］→［その他のスクリプト...］
@@ -204,6 +204,11 @@
         if (unused.length > 0) {
             warnings.push("テンプレートに差し込み先がない項目: " + unused.join("、"));
         }
+        // 名刺には入れていないが、目で確認してほしい情報
+        if (C.hasLogoData(rec)) warnings.push("ロゴデータ有り: LOGO の位置にロゴを配置してください");
+        if (rec["自由行"]) warnings.push("自由記入（行目）: " + oneLine(rec["自由行"]));
+        if (rec["備考"]) warnings.push("備考: " + oneLine(rec["備考"]));
+        if (rec["確認事項"]) warnings.push(rec["確認事項"]);
     }
 
     function oneLine(s) {
@@ -216,7 +221,11 @@
     function processRecord(rec, index, outFolder, overwrite) {
         var result = { ok: false, file: "", warnings: [] };
         var key = C.normalizeKey(rec["デザイン番号"]);
-        if (!key) { result.warnings.push("デザイン番号が空です"); return result; }
+        if (!key) {
+            result.warnings.push("デザイン番号が空です");
+            if (rec["確認事項"]) result.warnings.push(rec["確認事項"]);
+            return result;
+        }
         var tplFile = index[key];
         if (!tplFile) { result.warnings.push("テンプレートが見つかりません: " + rec["デザイン番号"]); return result; }
 
@@ -304,7 +313,7 @@
         logFile.encoding = "UTF-8";
         logFile.lineFeed = "Windows";
         logFile.open("w");
-        logFile.write("﻿" + log.join("\n"));
+        logFile.write("\uFEFF" + log.join("\n"));
         logFile.close();
 
         alert("完了しました。\n" + summary + "\n\n詳しくは保存先フォルダの\n" + decodeURI(logFile.name) + "\nを見てください。");

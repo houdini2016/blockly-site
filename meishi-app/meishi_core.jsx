@@ -1,4 +1,4 @@
-// =====================================================================
+﻿// =====================================================================
 //  名刺自動作成 — 共通ロジック（Illustrator に依存しない部分）
 //
 //  Illustrator CS6 の ExtendScript でも動くように、古い JavaScript (ES3)
@@ -32,8 +32,18 @@ var MeishiCore = (function () {
         "FAX":        ["FAX", "Fax", "ファックス"],
         "携帯":       ["携帯", "携帯電話", "Mobile"],
         "メール":     ["メール", "メールアドレス", "E-mail", "Email"],
-        "URL":        ["URL", "ホームページ", "Webサイト"]
+        "URL":        ["URL", "ホームページ", "Webサイト"],
+        // 以下は名刺に直接は入らない項目（処理結果の「要確認」に表示する）
+        "モール":     ["モール"],
+        "ふりがな":   ["ふりがな", "フリガナ"],
+        "ロゴデータ": ["ロゴデータ", "ロゴ"],
+        "自由行":     ["自由行", "行目"],
+        "備考":       ["備考", "当店への備考"],
+        "確認事項":   ["確認事項"]
     };
+
+    // 名刺に差し込まない項目（「差し込み先がない」の警告から外す）
+    var INFO_FIELDS = ["注文番号", "デザイン番号", "部署", "モール", "ふりがな", "ロゴデータ", "自由行", "備考", "確認事項"];
 
     // -----------------------------------------------------------------
     //  2. テンプレートに入っている「仮の文字」→ 項目名
@@ -45,6 +55,8 @@ var MeishiCore = (function () {
     // -----------------------------------------------------------------
     var PLACEHOLDERS = [
         { field: "氏名",       texts: ["鈴木太郎", "鈴木花子", "鈴木一郎"], spaced: true },
+        // 「ロゴデータ」が無しなら LOGO の位置に会社名が入る（有りならロゴを手作業で配置）
+        { field: "会社名",     texts: ["LOGO"], wholeLine: true, logo: true },
         { field: "肩書",       texts: ["代表取締役"] },
         { field: "氏名英字",   texts: ["Ichiro Suzuki", "Taro Suzuki", "Hanako Suzuki"] },
         { field: "肩書英字",   texts: ["President"], wholeLine: true },
@@ -75,7 +87,7 @@ var MeishiCore = (function () {
     // ===== 小さな道具 =====================================================
 
     function trim(s) {
-        return String(s).replace(/^[ \t　\r\n]+|[ \t　\r\n]+$/g, "");
+        return String(s).replace(/^[ \t\u3000\r\n]+|[ \t\u3000\r\n]+$/g, "");
     }
 
     function escapeRegex(s) {
@@ -87,7 +99,7 @@ var MeishiCore = (function () {
         var out = [];
         for (var i = 0; i < text.length; i++) {
             var c = text.charAt(i);
-            if (/[ \t　]/.test(c)) continue;
+            if (/[ \t\u3000]/.test(c)) continue;
             out.push(escapeRegex(c));
         }
         return out.join(WS + "*");
@@ -157,8 +169,13 @@ var MeishiCore = (function () {
     function prepareValues(rec) {
         var v = {};
         for (var k in rec) if (rec.hasOwnProperty(k)) v[k] = rec[k];
-        if (v["部署"]) v["肩書"] = v["肩書"] ? v["部署"] + "　" + v["肩書"] : v["部署"];
+        if (v["部署"]) v["肩書"] = v["肩書"] ? v["部署"] + "\u3000" + v["肩書"] : v["部署"];
         return v;
+    }
+
+    // ロゴデータが「有り」の注文か
+    function hasLogoData(rec) {
+        return /^[ \t\u3000]*有/.test(rec["ロゴデータ"] || "");
     }
 
     // ===== 差し込み位置を探す =============================================
@@ -168,6 +185,7 @@ var MeishiCore = (function () {
     //   used:   この中で見つかった項目名の一覧
     function planEdits(contents, rec) {
         var values = prepareValues(rec);
+        values.__logo = hasLogoData(rec);
         var edits = [], used = [];
 
         // 行ごとに処理する
@@ -235,7 +253,7 @@ var MeishiCore = (function () {
         found.sort(function (a, b) { return a.labelStart - b.labelStart; });
         for (var i = 0; i < found.length; i++) {
             var vEnd = (i + 1 < found.length) ? found[i + 1].labelStart : line.length;
-            while (vEnd > found[i].valueStart && /[ \t　]/.test(line.charAt(vEnd - 1))) vEnd--;
+            while (vEnd > found[i].valueStart && /[ \t\u3000]/.test(line.charAt(vEnd - 1))) vEnd--;
             if (vEnd <= found[i].valueStart) continue;  // 値がない見出しは触らない
             var v = val(found[i].field);
             if (v !== "") {
@@ -243,14 +261,14 @@ var MeishiCore = (function () {
             } else {
                 // 値が空 → 見出しごと消す（前の空白も消す）
                 var s = found[i].labelStart;
-                while (s > 0 && /[ \t　]/.test(line.charAt(s - 1))) s--;
+                while (s > 0 && /[ \t\u3000]/.test(line.charAt(s - 1))) s--;
                 add(s, vEnd, "", found[i].field);
             }
         }
 
         // --- (b) 見出しのない URL・メール・郵便番号 ---
         var patterns = [
-            { field: "URL", re: /https?:\/\/[^ \t　]+/g },
+            { field: "URL", re: /https?:\/\/[^ \t\u3000]+/g },
             { field: "メール", re: /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g }
         ];
         for (var p = 0; p < patterns.length; p++) {
@@ -262,7 +280,7 @@ var MeishiCore = (function () {
                 var pv = val(patterns[p].field);
                 if (pv === "") {
                     // 「  : ooooo@...」のように前に「:」だけ残る場合も一緒に消す
-                    while (ps > 0 && /[ \t　:：]/.test(line.charAt(ps - 1))) ps--;
+                    while (ps > 0 && /[ \t\u3000:：]/.test(line.charAt(ps - 1))) ps--;
                 }
                 add(ps, pe, pv, patterns[p].field);
             }
@@ -280,6 +298,7 @@ var MeishiCore = (function () {
         // --- (c) テンプレートの仮の文字 ---
         for (var k = 0; k < PLACEHOLDERS.length; k++) {
             var ph = PLACEHOLDERS[k];
+            if (ph.logo && values.__logo) continue;   // ロゴ有り → LOGO はそのまま
             for (var t = 0; t < ph.texts.length; t++) {
                 var src = looseSource(ph.texts[t]);
                 if (ph.wholeLine) src = "^" + WS + "*" + src + WS + "*$";
@@ -289,8 +308,8 @@ var MeishiCore = (function () {
                     if (mm[0].length === 0) { pre.lastIndex++; continue; }
                     var ms = mm.index, me = mm.index + mm[0].length;
                     if (ph.wholeLine) {   // 前後の空白は残す
-                        while (ms < me && /[ \t　]/.test(line.charAt(ms))) ms++;
-                        while (me > ms && /[ \t　]/.test(line.charAt(me - 1))) me--;
+                        while (ms < me && /[ \t\u3000]/.test(line.charAt(ms))) ms++;
+                        while (me > ms && /[ \t\u3000]/.test(line.charAt(me - 1))) me--;
                     }
                     if (!isFree(ms, me)) continue;
                     var nv = val(ph.field);
@@ -305,9 +324,9 @@ var MeishiCore = (function () {
     // 仮の文字が「鈴　木　太　郎」のように1文字ずつ空いていたら、
     // お客さんの名前「山田 花子」も「山　田　花　子」にそろえる
     function matchSpacing(placeholderText, value) {
-        var m = placeholderText.match(/^[^ \t　]([ \t　]+)[^ \t　]/);
+        var m = placeholderText.match(/^[^ \t\u3000]([ \t\u3000]+)[^ \t\u3000]/);
         if (!m) return value;
-        var chars = value.replace(/[ \t　]+/g, "");
+        var chars = value.replace(/[ \t\u3000]+/g, "");
         var out = [];
         for (var i = 0; i < chars.length; i++) out.push(chars.charAt(i));
         return out.join(m[1]);
@@ -326,10 +345,10 @@ var MeishiCore = (function () {
 
     // 値が入っているのに、テンプレートに差し込み先がなかった項目
     function unusedFields(rec, used) {
-        var skip = ["注文番号", "デザイン番号", "部署"];
         var out = [];
         for (var k in rec) {
-            if (!rec.hasOwnProperty(k) || inArray(skip, k)) continue;
+            if (!rec.hasOwnProperty(k) || inArray(INFO_FIELDS, k)) continue;
+            if (k === "会社名" && hasLogoData(rec)) continue;
             if (rec[k] !== "" && !inArray(used, k)) out.push(k);
         }
         return out;
@@ -366,7 +385,7 @@ var MeishiCore = (function () {
         s = String(s || "").replace(/[！-～]/g, function (c) {
             return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
         });
-        return s.replace(/[ \t　]+/g, "").replace(/\.ai$/i, "").toLowerCase();
+        return s.replace(/[ \t\u3000]+/g, "").replace(/\.ai$/i, "").toLowerCase();
     }
 
     // ===== ファイル名 =====================================================
@@ -374,7 +393,7 @@ var MeishiCore = (function () {
     // 「注文番号_名前.ai」 ファイル名に使えない文字や空白は取り除く
     function makeFileName(rec) {
         function clean(s) {
-            return String(s || "").replace(/[\\\/:*?"<>|\r\n\t]/g, "").replace(/[ 　]+/g, "");
+            return String(s || "").replace(/[\\\/:*?"<>|\r\n\t]/g, "").replace(/[ \u3000]+/g, "");
         }
         var order = clean(rec["注文番号"]) || "注文番号なし";
         var name = clean(rec["氏名"]) || clean(rec["氏名英字"]) || "名前なし";
@@ -388,7 +407,9 @@ var MeishiCore = (function () {
         trim: trim,
         parseCSV: parseCSV,
         rowsToRecords: rowsToRecords,
+        INFO_FIELDS: INFO_FIELDS,
         prepareValues: prepareValues,
+        hasLogoData: hasLogoData,
         planEdits: planEdits,
         applyEditsToString: applyEditsToString,
         matchSpacing: matchSpacing,
