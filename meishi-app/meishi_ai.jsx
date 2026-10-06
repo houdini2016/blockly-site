@@ -159,7 +159,8 @@ var MeishiAI = (function () {
     // ----- 備考 -----
 
     var MM = 72 / 25.4;                    // 1mm = 約2.83pt
-    var REMARK_OFFSET = 80 * MM;           // テンプレートの中心から 8cm 下
+    var REMARK_OFFSET = 50 * MM;           // テンプレートの中心から 5cm 下
+    var FALLBACK_OFFSET = 50 * MM;         // 置く場所が見つからないとき：中心から 5cm 上
     var REMARK_SIZE = 7;                   // 7pt
     var REMARK_FONTS = ["MS-Gothic", "MSGothic", "MS Gothic", "ＭＳゴシック", "ＭＳ ゴシック"];
 
@@ -170,12 +171,17 @@ var MeishiAI = (function () {
         return null;
     }
 
-    // お客さんの備考を、テンプレートの中心から 8cm 下に 7pt の MSゴシックで入れる（中央揃え）
+    // アートボード（テンプレート）の中心 [x, y]
+    function artboardCenter(doc) {
+        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect;   // [左, 上, 右, 下]
+        return [(ab[0] + ab[2]) / 2, (ab[1] + ab[3]) / 2];
+    }
+
+    // お客さんの備考を、テンプレートの中心から 5cm 下に 7pt の MSゴシックで入れる（中央揃え）
     function addRemarks(doc, text, warnings) {
         text = C.trim(text || "");
         if (!C.remarkHasContent(text)) return;   // お店の案内文だけ（お客さんが何も書いていない）なら入れない
-        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect;   // [左, 上, 右, 下]
-        var cx = (ab[0] + ab[2]) / 2, cy = (ab[1] + ab[3]) / 2;
+        var c = artboardCenter(doc), cx = c[0], cy = c[1];
 
         var layer = doc.layers.add();
         layer.name = "備考";
@@ -189,7 +195,7 @@ var MeishiAI = (function () {
         range.paragraphAttributes.justification = Justification.CENTER;
         // 文字のかたまりの「上の中央」を、中心から 8cm 下にそろえる
         tf.position = [cx - tf.width / 2, cy - REMARK_OFFSET];
-        warnings.push("備考を名刺の下（中心から8cm下）に入れました");
+        warnings.push("備考を名刺の下（中心から5cm下）に入れました");
     }
 
     // ----- 見出しと値が別のテキストになっているデザイン -----
@@ -255,9 +261,11 @@ var MeishiAI = (function () {
         try { return info.frame.geometricBounds; } catch (e) { return info.bounds; }
     }
 
-    // info のテキストの上（縦書きなら右）に、小さな文字のテキストを足す。
-    // inPlace が true なら、上ではなく info のテキストがあった場所に入れる（肩書が空で消えたとき）
-    function addLabelAbove(doc, info, text, size, align, inPlace) {
+    // info のテキストのまわりに、小さな文字のテキストを足す。
+    //   mode "above"   ：上（縦書きなら右どなり）
+    //   mode "inPlace" ：info のテキストがあった場所（肩書が空で消えたとき）
+    //   mode "below"   ：下（縦書きなら左どなり）
+    function addLabelAbove(doc, info, text, size, align, mode) {
         var tf = doc.textFrames.add();
         tf.contents = text;
         var attrs = tf.textRange.characterAttributes;
@@ -266,13 +274,25 @@ var MeishiAI = (function () {
         if (info.vertical) tf.orientation = TextOrientation.VERTICAL;
         var b = currentBounds(info);                  // [左, 上, 右, 下]（上の方が数字が大きい）
         var w = tf.width, h = tf.height;
-        if (info.vertical) {
-            tf.position = [inPlace ? b[0] : b[2] + LABEL_GAP, b[1]];     // 縦書き：右どなり、上をそろえる
+        if (info.vertical) {                          // 縦書き：上をそろえる
+            var x = mode === "inPlace" ? b[0] : mode === "below" ? b[0] - LABEL_GAP - w : b[2] + LABEL_GAP;
+            tf.position = [x, b[1]];
         } else {
             var left = align === "center" ? (b[0] + b[2]) / 2 - w / 2 : align === "right" ? b[2] - w : b[0];
-            tf.position = [left, inPlace ? b[1] : b[1] + LABEL_GAP + h];
+            var top = mode === "inPlace" ? b[1] : mode === "below" ? b[3] - LABEL_GAP : b[1] + LABEL_GAP + h;
+            tf.position = [left, top];
         }
         try { tf.move(info.frame, ElementPlacement.PLACEBEFORE); } catch (e) { /* 元のテキストが消えていたらそのまま */ }
+        return tf;
+    }
+
+    // 置く場所が見つからないとき：テンプレートの中心から 5cm 上に、中央そろえで入れる
+    function addLabelAtCenter(doc, text, size) {
+        var tf = doc.textFrames.add();
+        tf.contents = text;
+        tf.textRange.characterAttributes.size = size;
+        var c = artboardCenter(doc);
+        tf.position = [c[0] - tf.width / 2, c[1] + FALLBACK_OFFSET];
         return tf;
     }
 
@@ -294,7 +314,8 @@ var MeishiAI = (function () {
         }
 
         var values = C.prepareValues(rec);
-        var nameInfo = null, titleInfo = null;   // ふりがな・部署名を置く場所の目印
+        var nameInfo = null, titleInfo = null, companyInfo = null;   // ふりがな・部署名を置く場所の目印
+        var COMPANY_KEYS = ["会社名", "会社名_後", "会社名_前", "会社名英字", "(そのまま)"];
         var removedFrames = [];                  // 未入力で消したテキスト
         for (var f = 0; f < frames.length; f++) {
             var tf = frames[f];
@@ -313,6 +334,9 @@ var MeishiAI = (function () {
                     for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);
                     if (!nameInfo && plan.fieldPos.hasOwnProperty("氏名")) nameInfo = captureInfo(tf, plan.fieldPos["氏名"]);
                     if (!titleInfo && plan.fieldPos.hasOwnProperty("肩書")) titleInfo = captureInfo(tf, plan.fieldPos["肩書"]);
+                    for (var ck = 0; !companyInfo && ck < COMPANY_KEYS.length; ck++) {
+                        if (plan.fieldPos.hasOwnProperty(COMPANY_KEYS[ck])) companyInfo = captureInfo(tf, plan.fieldPos[COMPANY_KEYS[ck]]);
+                    }
                     if (plan.edits.length > 0) {
                         var expected = C.applyEditsToString(before, plan.edits);
                         try {
@@ -344,28 +368,43 @@ var MeishiAI = (function () {
             } catch (removeErr) { /* 消せなくても空なので見た目は同じ */ }
             if (!emptied) relock();
         }
-        // ふりがな：氏名の上に、氏名と同じフォントで 5pt（中央そろえ）
+        // ふりがな：氏名の上に、氏名と同じフォントで 5pt（中央そろえ）。氏名の場所がなければ中心から 5cm 上
         if (rec["ふりがな"]) {
-            if (!nameInfo) warnings.push("氏名の場所が見つからないため、ふりがなを入れていません: " + rec["ふりがな"]);
-            else {
-                try { addLabelAbove(doc, nameInfo, rec["ふりがな"], FURIGANA_SIZE, "center"); used.push("ふりがな"); }
-                catch (furiErr) { warnings.push("ふりがなを入れられませんでした（" + furiErr.message + "）"); }
-            }
+            try {
+                if (nameInfo) addLabelAbove(doc, nameInfo, rec["ふりがな"], FURIGANA_SIZE, "center", "above");
+                else {
+                    addLabelAtCenter(doc, rec["ふりがな"], FURIGANA_SIZE);
+                    warnings.push("氏名の場所が見つからないため、ふりがなを中心から5cm上に入れました");
+                }
+                used.push("ふりがな");
+            } catch (furiErr) { warnings.push("ふりがなを入れられませんでした（" + furiErr.message + "）"); }
         }
-        // 部署名：会社名と肩書の間（肩書の上）に、肩書と同じフォントで 8pt。
-        // 肩書が空で消えたときは肩書があった場所に、肩書の場所がないデザインは氏名の上に入れる
+        // 部署名：8pt。置く場所は上から順に
+        //   1. 肩書の上（会社名と肩書の間）… 肩書と同じフォント・そろえ方
+        //   2. 肩書が空で消えたときは、肩書があった場所
+        //   3. 肩書の場所がないデザインは、氏名の上
+        //   4. 肩書も氏名も場所がなければ、会社名の下
+        //   5. どれも見つからなければ、テンプレートの中心から 5cm 上
         if (rec["部署"]) {
-            var deptInfo = titleInfo || nameInfo;
-            var titleGone = false;
-            for (var rf = 0; titleInfo && rf < removedFrames.length; rf++) if (removedFrames[rf] === titleInfo.frame) titleGone = true;
-            if (!deptInfo) warnings.push("肩書・氏名の場所が見つからないため、部署名を入れていません: " + rec["部署"]);
-            else {
-                try {
-                    addLabelAbove(doc, deptInfo, rec["部署"], DEPARTMENT_SIZE, deptInfo.align, titleGone);
-                    warnings.push(titleGone ? "部署名を肩書の場所に入れました（位置を確認してください）"
-                                            : "部署名を肩書の上に入れました（位置を確認してください）");
-                } catch (deptErr) { warnings.push("部署名を入れられませんでした（" + deptErr.message + "）"); }
-            }
+            try {
+                var titleGone = false;
+                for (var rf = 0; titleInfo && rf < removedFrames.length; rf++) if (removedFrames[rf] === titleInfo.frame) titleGone = true;
+                var where;
+                if (titleInfo) {
+                    addLabelAbove(doc, titleInfo, rec["部署"], DEPARTMENT_SIZE, titleInfo.align, titleGone ? "inPlace" : "above");
+                    where = titleGone ? "肩書の場所" : "肩書の上";
+                } else if (nameInfo) {
+                    addLabelAbove(doc, nameInfo, rec["部署"], DEPARTMENT_SIZE, nameInfo.align, "above");
+                    where = "氏名の上";
+                } else if (companyInfo) {
+                    addLabelAbove(doc, companyInfo, rec["部署"], DEPARTMENT_SIZE, companyInfo.align, "below");
+                    where = "会社名の下";
+                } else {
+                    addLabelAtCenter(doc, rec["部署"], DEPARTMENT_SIZE);
+                    where = "中心から5cm上";
+                }
+                warnings.push("部署名を" + where + "に入れました（位置を確認してください）");
+            } catch (deptErr) { warnings.push("部署名を入れられませんでした（" + deptErr.message + "）"); }
         }
 
         var unused = C.unusedFields(rec, used);
@@ -391,6 +430,7 @@ var MeishiAI = (function () {
         addLabelAbove: addLabelAbove,
         mergeSplitLabels: mergeSplitLabels,
         REMARK_OFFSET: REMARK_OFFSET,
+        FALLBACK_OFFSET: FALLBACK_OFFSET,
         editDocument: editDocument
     };
 })();

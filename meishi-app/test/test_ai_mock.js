@@ -158,7 +158,7 @@ test("Illustrator が改行をまたぐ削除でエラーを出しても、中�
     assert.ok(w.join("\n").indexOf("書式が一部くずれた") >= 0);
 });
 
-test("備考: 中心から8cm下に 7pt・MSゴシック・中央揃えで入れる", function () {
+test("備考: 中心から5cm下に 7pt・MSゴシック・中央揃えで入れる", function () {
     var doc = makeDoc([["鈴\u3000木\u3000花\u3000子", [0, 0, 10, -10]]]);
     var added = [];
     doc.artboards = [{ artboardRect: [0, 858.9, 612.3, 0] }];
@@ -182,7 +182,7 @@ test("備考: 中心から8cm下に 7pt・MSゴシック・中央揃えで入れ
     assert.strictEqual(t.textRange.paragraphAttributes.justification, "center");
     var cx = 612.3 / 2, cy = 858.9 / 2;
     assert.ok(Math.abs(t.position[0] - (cx - 50)) < 0.01);
-    assert.ok(Math.abs(t.position[1] - (cy - 80 * 72 / 25.4)) < 0.01);   // 8cm = 226.77pt
+    assert.ok(Math.abs(t.position[1] - (cy - 50 * 72 / 25.4)) < 0.01);   // 5cm = 141.73pt
     assert.ok(w.join("\n").indexOf("備考を名刺の下") >= 0);
 });
 
@@ -272,6 +272,37 @@ test("コロン: メールが未入力なら見出しも値も消える", functi
     var label = doc.textFrames[0], value = doc.textFrames[1];
     AI.editDocument(doc, { "氏名": "山田 太郎" }, []);
     assert.ok(label.removed && value.removed);
+});
+
+function withArtboard(doc) {
+    doc.artboards = [{ artboardRect: [0, 858.9, 612.3, 0] }];
+    doc.artboards.getActiveArtboardIndex = function () { return 0; };
+    return doc;
+}
+
+test("部署名: 肩書も氏名も場所がなければ会社名の下", function () {
+    var doc = makeDoc([["LOGO", [228, -368, 291, -393]]]);
+    doc.textFrames[0].fontAt = function () { return "会社名のフォント"; };
+    var w = [];
+    AI.editDocument(doc, { "会社名": "株式会社サンプル", "ロゴデータ": "無し", "部署": "営業部" }, w);
+    var d = doc.added[0];
+    assert.strictEqual(d.contents, "営業部");
+    assert.strictEqual(d.textRange.characterAttributes.size, 8);
+    assert.deepStrictEqual(d.position, [228, -393 - 1]);         // 会社名の 1pt 下・左そろえ
+    assert.ok(w.join("\n").indexOf("会社名の下") >= 0);
+});
+
+test("部署名・ふりがな: 置く場所がなければ中心から5cm上", function () {
+    var doc = withArtboard(makeDoc([["Tel : 000-000-0000", [0, 0, 10, -10]]]));
+    var w = [];
+    AI.editDocument(doc, { "部署": "営業部", "ふりがな": "やまだ", "TEL": "03-1" }, w);
+    var cx = 612.3 / 2, cy = 858.9 / 2, up = 50 * 72 / 25.4;
+    assert.strictEqual(doc.added.length, 2);
+    doc.added.forEach(function (t) {
+        assert.ok(Math.abs(t.position[0] - (cx - 20)) < 0.01);
+        assert.ok(Math.abs(t.position[1] - (cy + up)) < 0.01);
+    });
+    assert.ok(w.join("\n").indexOf("中心から5cm上") >= 0);
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
