@@ -83,8 +83,32 @@ def _split_address(card, lines):
         _add_note(card, "住所が4行以上あります（住所2にまとめました）")
 
 
+# 「01 sample」「02 gmail.com」のように、E-mail01（@の前）／E-mail02（@の後ろ）の番号が残っている値
+_MAIL_PART = re.compile(r"^0?([12])(?:[\s\u3000:：]+(.*))?$")
+
+
+def _set_mail(card, parts, value):
+    """メールの値を入れる。E-mail01/02 の番号が残っていたら取り除き、あとで「@」でつなぐ。"""
+    m = _MAIL_PART.match(value)
+    if m and "@" not in value[:3]:
+        parts[m.group(1)] = (m.group(2) or "").strip()
+    else:
+        card["メール"] = value
+
+
+def _join_mail(card, parts):
+    """E-mail01 と E-mail02 をつなぐ。E-mail02 がなければ E-mail01 をそのまま使う。"""
+    local = parts.get("1", "").replace("＠", "@")
+    domain = parts.get("2", "").replace("＠", "@")
+    if local and domain:
+        card["メール"] = local.rstrip("@") + "@" + domain.lstrip("@") if "@" not in local.rstrip("@") else local + domain
+    elif local or domain:
+        card["メール"] = local or domain
+
+
 def _read_address_block(card, block):
     addr = []
+    mail_parts = {}
     for line in block.split("\n"):
         line = line.strip()
         if not line:
@@ -95,6 +119,9 @@ def _read_address_block(card, block):
         for field, pat in _CONTACT:
             m = pat.match(line)
             if m:
+                if field == "メール":
+                    _set_mail(card, mail_parts, m.group(1).strip())
+                    break
                 card[field] = m.group(1).strip()
                 if field == "URL":
                     card[field] = re.sub(r"^(https?):?//", r"\1://", card[field])
@@ -109,6 +136,7 @@ def _read_address_block(card, block):
                 _add_note(card, f"見出しのない電話番号を{field}にしました: {line}")
             else:
                 addr.append(line)
+    _join_mail(card, mail_parts)
     _split_address(card, addr)
 
 
@@ -1268,17 +1296,41 @@ JOB_JSX = (
     '        try { return info.frame.geometricBounds; } catch (e) { return info.bounds; }\n'
     '    }\n'
     '\n'
+    '    // \\u8DB3\\u3059\\u30C6\\u30AD\\u30B9\\u30C8\\u306F\\u5C02\\u7528\\u306E\\u30EC\\u30A4\\u30E4\\u30FC\\u300C\\u8FFD\\u52A0\\u30C6\\u30AD\\u30B9\\u30C8\\u300D\\u306B\\u5165\\u308C\\u308B\n'
+    '    // \\uFF08\\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u30EC\\u30A4\\u30E4\\u30FC\\u304C\\u30ED\\u30C3\\u30AF\\u30FB\\u975E\\u8868\\u793A\\u3060\\u3068\\u6587\\u5B57\\u3092\\u8DB3\\u305B\\u305A\\u306B\\u30A8\\u30E9\\u30FC\\u306B\\u306A\\u308B\\u305F\\u3081\\uFF09\n'
+    '    var ADDED_LAYER = "\\u8FFD\\u52A0\\u30C6\\u30AD\\u30B9\\u30C8";\n'
+    '\n'
+    '    function addedLayer(doc) {\n'
+    '        var layer = null;\n'
+    '        try { layer = doc.layers.getByName(ADDED_LAYER); } catch (e) { layer = null; }\n'
+    '        if (!layer) {\n'
+    '            layer = doc.layers.add();\n'
+    '            layer.name = ADDED_LAYER;\n'
+    '        }\n'
+    '        try { layer.locked = false; layer.visible = true; } catch (e2) { /* \\u305D\\u306E\\u307E\\u307E */ }\n'
+    '        return layer;\n'
+    '    }\n'
+    '\n'
+    '    function newText(doc, text, size, font) {\n'
+    '        var tf = addedLayer(doc).textFrames.add();\n'
+    '        tf.contents = text;\n'
+    '        var attrs = tf.textRange.characterAttributes;\n'
+    '        attrs.size = size;\n'
+    '        if (font) {\n'
+    '            try { attrs.textFont = font; } catch (e) { /* \\u30D5\\u30A9\\u30F3\\u30C8\\u3092\\u5909\\u3048\\u3089\\u308C\\u306A\\u3051\\u308C\\u3070\\u30C7\\u30D5\\u30A9\\u30EB\\u30C8\\u306E\\u307E\\u307E */ }\n'
+    '        }\n'
+    '        return tf;\n'
+    '    }\n'
+    '\n'
     '    // info \\u306E\\u30C6\\u30AD\\u30B9\\u30C8\\u306E\\u307E\\u308F\\u308A\\u306B\\u3001\\u5C0F\\u3055\\u306A\\u6587\\u5B57\\u306E\\u30C6\\u30AD\\u30B9\\u30C8\\u3092\\u8DB3\\u3059\\u3002\n'
     '    //   mode "above"   \\uFF1A\\u4E0A\\uFF08\\u7E26\\u66F8\\u304D\\u306A\\u3089\\u53F3\\u3069\\u306A\\u308A\\uFF09\n'
     '    //   mode "inPlace" \\uFF1Ainfo \\u306E\\u30C6\\u30AD\\u30B9\\u30C8\\u304C\\u3042\\u3063\\u305F\\u5834\\u6240\\uFF08\\u80A9\\u66F8\\u304C\\u7A7A\\u3067\\u6D88\\u3048\\u305F\\u3068\\u304D\\uFF09\n'
     '    //   mode "below"   \\uFF1A\\u4E0B\\uFF08\\u7E26\\u66F8\\u304D\\u306A\\u3089\\u5DE6\\u3069\\u306A\\u308A\\uFF09\n'
     '    function addLabelAbove(doc, info, text, size, align, mode) {\n'
-    '        var tf = doc.textFrames.add();\n'
-    '        tf.contents = text;\n'
-    '        var attrs = tf.textRange.characterAttributes;\n'
-    '        attrs.size = size;\n'
-    '        if (info.font) attrs.textFont = info.font;\n'
-    '        if (info.vertical) tf.orientation = TextOrientation.VERTICAL;\n'
+    '        var tf = newText(doc, text, size, info.font);\n'
+    '        if (info.vertical) {\n'
+    '            try { tf.orientation = TextOrientation.VERTICAL; } catch (e) { /* \\u6A2A\\u66F8\\u304D\\u306E\\u307E\\u307E */ }\n'
+    '        }\n'
     '        var b = currentBounds(info);                  // [\\u5DE6, \\u4E0A, \\u53F3, \\u4E0B]\\uFF08\\u4E0A\\u306E\\u65B9\\u304C\\u6570\\u5B57\\u304C\\u5927\\u304D\\u3044\\uFF09\n'
     '        var w = tf.width, h = tf.height;\n'
     '        if (info.vertical) {                          // \\u7E26\\u66F8\\u304D\\uFF1A\\u4E0A\\u3092\\u305D\\u308D\\u3048\\u308B\n'
@@ -1289,18 +1341,28 @@ JOB_JSX = (
     '            var top = mode === "inPlace" ? b[1] : mode === "below" ? b[3] - LABEL_GAP : b[1] + LABEL_GAP + h;\n'
     '            tf.position = [left, top];\n'
     '        }\n'
-    '        try { tf.move(info.frame, ElementPlacement.PLACEBEFORE); } catch (e) { /* \\u5143\\u306E\\u30C6\\u30AD\\u30B9\\u30C8\\u304C\\u6D88\\u3048\\u3066\\u3044\\u305F\\u3089\\u305D\\u306E\\u307E\\u307E */ }\n'
     '        return tf;\n'
     '    }\n'
     '\n'
-    '    // \\u7F6E\\u304F\\u5834\\u6240\\u304C\\u898B\\u3064\\u304B\\u3089\\u306A\\u3044\\u3068\\u304D\\uFF1A\\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4E2D\\u5FC3\\u304B\\u3089 5cm \\u4E0A\\u306B\\u3001\\u4E2D\\u592E\\u305D\\u308D\\u3048\\u3067\\u5165\\u308C\\u308B\n'
-    '    function addLabelAtCenter(doc, text, size) {\n'
-    '        var tf = doc.textFrames.add();\n'
-    '        tf.contents = text;\n'
-    '        tf.textRange.characterAttributes.size = size;\n'
-    '        var c = artboardCenter(doc);\n'
+    '    // \\u7F6E\\u304F\\u5834\\u6240\\u304C\\u898B\\u3064\\u304B\\u3089\\u306A\\u304B\\u3063\\u305F\\u9805\\u76EE\\u3092\\u3001\\u307E\\u3068\\u3081\\u3066\\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4E2D\\u5FC3\\u304B\\u3089 5cm \\u4E0A\\u306B\\u5165\\u308C\\u308B\\uFF08\\u30C7\\u30D5\\u30A9\\u30EB\\u30C8\\u306E\\u30D5\\u30A9\\u30F3\\u30C8\\u30FB8pt\\uFF09\n'
+    '    var FALLBACK_SIZE = 8;\n'
+    '\n'
+    '    function addFallbackBlock(doc, lines) {\n'
+    '        var tf = newText(doc, lines.join("\\r"), FALLBACK_SIZE, null);\n'
+    '        try { tf.textRange.paragraphAttributes.justification = Justification.CENTER; } catch (e) { /* \\u5DE6\\u305D\\u308D\\u3048\\u306E\\u307E\\u307E */ }\n'
+    '        var c = [0, 0];\n'
+    '        try { c = artboardCenter(doc); } catch (e2) { /* \\u30A2\\u30FC\\u30C8\\u30DC\\u30FC\\u30C9\\u304C\\u5206\\u304B\\u3089\\u306A\\u3051\\u308C\\u3070\\u539F\\u70B9 */ }\n'
     '        tf.position = [c[0] - tf.width / 2, c[1] + FALLBACK_OFFSET];\n'
     '        return tf;\n'
+    '    }\n'
+    '\n'
+    '    // \\u7F6E\\u304D\\u5834\\u6240\\u304C\\u306A\\u304B\\u3063\\u305F\\u9805\\u76EE\\u3092\\u3001\\u540D\\u523A\\u3067\\u306E\\u66F8\\u304D\\u65B9\\u306B\\u3057\\u30661\\u884C\\u306B\\u3059\\u308B\n'
+    '    var FALLBACK_ORDER = ["\\u4F1A\\u793E\\u540D", "\\u4F1A\\u793E\\u540D\\u82F1\\u5B57", "\\u80A9\\u66F8", "\\u80A9\\u66F8\\u82F1\\u5B57", "\\u6C0F\\u540D", "\\u6C0F\\u540D\\u82F1\\u5B57", "\\u90F5\\u4FBF\\u756A\\u53F7",\n'
+    '                          "\\u4F4F\\u62401", "\\u4F4F\\u62402", "\\u82F1\\u5B57\\u4F4F\\u62401", "\\u82F1\\u5B57\\u4F4F\\u62402", "TEL", "FAX", "\\u643A\\u5E2F", "\\u30E1\\u30FC\\u30EB", "URL"];\n'
+    '    var FALLBACK_PREFIX = { "\\u90F5\\u4FBF\\u756A\\u53F7": "\\u3012", "TEL": "TEL\\uFF1A", "FAX": "FAX\\uFF1A", "\\u643A\\u5E2F": "Mobile\\uFF1A", "\\u30E1\\u30FC\\u30EB": "E-mail\\uFF1A" };\n'
+    '\n'
+    '    function fallbackLine(field, value) {\n'
+    '        return (FALLBACK_PREFIX[field] || "") + value;\n'
     '    }\n'
     '\n'
     '    // ----- \\u66F8\\u985E\\u5168\\u4F53\\u306E\\u66F8\\u304D\\u63DB\\u3048 -----\n'
@@ -1375,52 +1437,63 @@ JOB_JSX = (
     '            } catch (removeErr) { /* \\u6D88\\u305B\\u306A\\u304F\\u3066\\u3082\\u7A7A\\u306A\\u306E\\u3067\\u898B\\u305F\\u76EE\\u306F\\u540C\\u3058 */ }\n'
     '            if (!emptied) relock();\n'
     '        }\n'
-    '        // \\u3075\\u308A\\u304C\\u306A\\uFF1A\\u6C0F\\u540D\\u306E\\u4E0A\\u306B\\u3001\\u6C0F\\u540D\\u3068\\u540C\\u3058\\u30D5\\u30A9\\u30F3\\u30C8\\u3067 5pt\\uFF08\\u4E2D\\u592E\\u305D\\u308D\\u3048\\uFF09\\u3002\\u6C0F\\u540D\\u306E\\u5834\\u6240\\u304C\\u306A\\u3051\\u308C\\u3070\\u4E2D\\u5FC3\\u304B\\u3089 5cm \\u4E0A\n'
+    '        // \\u7F6E\\u304D\\u5834\\u6240\\u304C\\u898B\\u3064\\u304B\\u3089\\u306A\\u304B\\u3063\\u305F\\u9805\\u76EE\\u306F fallback \\u306B\\u96C6\\u3081\\u3066\\u3001\\u6700\\u5F8C\\u306B\\u307E\\u3068\\u3081\\u3066\\u4E2D\\u5FC3\\u304B\\u3089 5cm \\u4E0A\\u306B\\u5165\\u308C\\u308B\n'
+    '        var fallback = [], fallbackNames = [];\n'
+    '        function toFallback(name, line) { fallback.push(line); fallbackNames.push(name); }\n'
+    '\n'
+    '        // \\u3075\\u308A\\u304C\\u306A\\uFF1A\\u6C0F\\u540D\\u306E\\u4E0A\\u306B\\u3001\\u6C0F\\u540D\\u3068\\u540C\\u3058\\u30D5\\u30A9\\u30F3\\u30C8\\u3067 5pt\\uFF08\\u4E2D\\u592E\\u305D\\u308D\\u3048\\uFF09\n'
     '        if (rec["\\u3075\\u308A\\u304C\\u306A"]) {\n'
-    '            try {\n'
-    '                if (nameInfo) addLabelAbove(doc, nameInfo, rec["\\u3075\\u308A\\u304C\\u306A"], FURIGANA_SIZE, "center", "above");\n'
-    '                else {\n'
-    '                    addLabelAtCenter(doc, rec["\\u3075\\u308A\\u304C\\u306A"], FURIGANA_SIZE);\n'
-    '                    warnings.push("\\u6C0F\\u540D\\u306E\\u5834\\u6240\\u304C\\u898B\\u3064\\u304B\\u3089\\u306A\\u3044\\u305F\\u3081\\u3001\\u3075\\u308A\\u304C\\u306A\\u3092\\u4E2D\\u5FC3\\u304B\\u30895cm\\u4E0A\\u306B\\u5165\\u308C\\u307E\\u3057\\u305F");\n'
-    '                }\n'
-    '                used.push("\\u3075\\u308A\\u304C\\u306A");\n'
-    '            } catch (furiErr) { warnings.push("\\u3075\\u308A\\u304C\\u306A\\u3092\\u5165\\u308C\\u3089\\u308C\\u307E\\u305B\\u3093\\u3067\\u3057\\u305F\\uFF08" + furiErr.message + "\\uFF09"); }\n'
+    '            var furiDone = false;\n'
+    '            if (nameInfo) {\n'
+    '                try { addLabelAbove(doc, nameInfo, rec["\\u3075\\u308A\\u304C\\u306A"], FURIGANA_SIZE, "center", "above"); furiDone = true; }\n'
+    '                catch (furiErr) { /* \\u4E0B\\u3067\\u307E\\u3068\\u3081\\u3066\\u5165\\u308C\\u308B */ }\n'
+    '            }\n'
+    '            if (!furiDone) toFallback("\\u3075\\u308A\\u304C\\u306A", rec["\\u3075\\u308A\\u304C\\u306A"]);\n'
     '        }\n'
     '        // \\u90E8\\u7F72\\u540D\\uFF1A8pt\\u3002\\u7F6E\\u304F\\u5834\\u6240\\u306F\\u4E0A\\u304B\\u3089\\u9806\\u306B\n'
     '        //   1. \\u80A9\\u66F8\\u306E\\u4E0A\\uFF08\\u4F1A\\u793E\\u540D\\u3068\\u80A9\\u66F8\\u306E\\u9593\\uFF09\\u2026 \\u80A9\\u66F8\\u3068\\u540C\\u3058\\u30D5\\u30A9\\u30F3\\u30C8\\u30FB\\u305D\\u308D\\u3048\\u65B9\n'
     '        //   2. \\u80A9\\u66F8\\u304C\\u7A7A\\u3067\\u6D88\\u3048\\u305F\\u3068\\u304D\\u306F\\u3001\\u80A9\\u66F8\\u304C\\u3042\\u3063\\u305F\\u5834\\u6240\n'
     '        //   3. \\u80A9\\u66F8\\u306E\\u5834\\u6240\\u304C\\u306A\\u3044\\u30C7\\u30B6\\u30A4\\u30F3\\u306F\\u3001\\u6C0F\\u540D\\u306E\\u4E0A\n'
     '        //   4. \\u80A9\\u66F8\\u3082\\u6C0F\\u540D\\u3082\\u5834\\u6240\\u304C\\u306A\\u3051\\u308C\\u3070\\u3001\\u4F1A\\u793E\\u540D\\u306E\\u4E0B\n'
-    '        //   5. \\u3069\\u308C\\u3082\\u898B\\u3064\\u304B\\u3089\\u306A\\u3051\\u308C\\u3070\\u3001\\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4E2D\\u5FC3\\u304B\\u3089 5cm \\u4E0A\n'
+    '        //   5. \\u3069\\u308C\\u3082\\u898B\\u3064\\u304B\\u3089\\u306A\\u3044\\u30FB\\u5165\\u308C\\u3089\\u308C\\u306A\\u3051\\u308C\\u3070\\u3001\\u4E2D\\u5FC3\\u304B\\u3089 5cm \\u4E0A\\uFF08\\u307E\\u3068\\u3081\\u3066\\uFF09\n'
     '        if (rec["\\u90E8\\u7F72"]) {\n'
-    '            try {\n'
-    '                var titleGone = false;\n'
-    '                for (var rf = 0; titleInfo && rf < removedFrames.length; rf++) if (removedFrames[rf] === titleInfo.frame) titleGone = true;\n'
-    '                var where;\n'
-    '                if (titleInfo) {\n'
-    '                    addLabelAbove(doc, titleInfo, rec["\\u90E8\\u7F72"], DEPARTMENT_SIZE, titleInfo.align, titleGone ? "inPlace" : "above");\n'
-    '                    where = titleGone ? "\\u80A9\\u66F8\\u306E\\u5834\\u6240" : "\\u80A9\\u66F8\\u306E\\u4E0A";\n'
-    '                } else if (nameInfo) {\n'
-    '                    addLabelAbove(doc, nameInfo, rec["\\u90E8\\u7F72"], DEPARTMENT_SIZE, nameInfo.align, "above");\n'
-    '                    where = "\\u6C0F\\u540D\\u306E\\u4E0A";\n'
-    '                } else if (companyInfo) {\n'
-    '                    addLabelAbove(doc, companyInfo, rec["\\u90E8\\u7F72"], DEPARTMENT_SIZE, companyInfo.align, "below");\n'
-    '                    where = "\\u4F1A\\u793E\\u540D\\u306E\\u4E0B";\n'
-    '                } else {\n'
-    '                    addLabelAtCenter(doc, rec["\\u90E8\\u7F72"], DEPARTMENT_SIZE);\n'
-    '                    where = "\\u4E2D\\u5FC3\\u304B\\u30895cm\\u4E0A";\n'
-    '                }\n'
-    '                warnings.push("\\u90E8\\u7F72\\u540D\\u3092" + where + "\\u306B\\u5165\\u308C\\u307E\\u3057\\u305F\\uFF08\\u4F4D\\u7F6E\\u3092\\u78BA\\u8A8D\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044\\uFF09");\n'
-    '            } catch (deptErr) { warnings.push("\\u90E8\\u7F72\\u540D\\u3092\\u5165\\u308C\\u3089\\u308C\\u307E\\u305B\\u3093\\u3067\\u3057\\u305F\\uFF08" + deptErr.message + "\\uFF09"); }\n'
+    '            var titleGone = false;\n'
+    '            for (var rf = 0; titleInfo && rf < removedFrames.length; rf++) if (removedFrames[rf] === titleInfo.frame) titleGone = true;\n'
+    '            var tries = [];\n'
+    '            if (titleInfo) tries.push([titleInfo, titleGone ? "inPlace" : "above", titleGone ? "\\u80A9\\u66F8\\u306E\\u5834\\u6240" : "\\u80A9\\u66F8\\u306E\\u4E0A"]);\n'
+    '            if (nameInfo) tries.push([nameInfo, "above", "\\u6C0F\\u540D\\u306E\\u4E0A"]);\n'
+    '            if (companyInfo) tries.push([companyInfo, "below", "\\u4F1A\\u793E\\u540D\\u306E\\u4E0B"]);\n'
+    '            var deptWhere = null;\n'
+    '            for (var tr = 0; tr < tries.length && !deptWhere; tr++) {\n'
+    '                try {\n'
+    '                    addLabelAbove(doc, tries[tr][0], rec["\\u90E8\\u7F72"], DEPARTMENT_SIZE, tries[tr][0].align, tries[tr][1]);\n'
+    '                    deptWhere = tries[tr][2];\n'
+    '                } catch (deptErr) { /* \\u6B21\\u306E\\u5834\\u6240\\u3092\\u8A66\\u3059 */ }\n'
+    '            }\n'
+    '            if (deptWhere) warnings.push("\\u90E8\\u7F72\\u540D\\u3092" + deptWhere + "\\u306B\\u5165\\u308C\\u307E\\u3057\\u305F\\uFF08\\u4F4D\\u7F6E\\u3092\\u78BA\\u8A8D\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044\\uFF09");\n'
+    '            else toFallback("\\u90E8\\u7F72\\u540D", rec["\\u90E8\\u7F72"]);\n'
     '        }\n'
     '\n'
+    '        // \\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306B\\u5DEE\\u3057\\u8FBC\\u307F\\u5148\\u304C\\u306A\\u304B\\u3063\\u305F\\u9805\\u76EE\\u3082\\u3001\\u6D41\\u3057\\u8FBC\\u307F\\u6F0F\\u308C\\u304C\\u306A\\u3044\\u3088\\u3046\\u306B\\u6253\\u3061\\u8FBC\\u3080\n'
     '        var unused = C.unusedFields(rec, used);\n'
-    '        if (unused.length > 0) {\n'
-    '            warnings.push("\\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306B\\u5DEE\\u3057\\u8FBC\\u307F\\u5148\\u304C\\u306A\\u3044\\u9805\\u76EE: " + unused.join("\\u3001"));\n'
+    '        for (var fo = 0; fo < FALLBACK_ORDER.length; fo++) {\n'
+    '            for (var un = 0; un < unused.length; un++) {\n'
+    '                if (unused[un] === FALLBACK_ORDER[fo]) toFallback(unused[un], fallbackLine(unused[un], rec[unused[un]]));\n'
+    '            }\n'
     '        }\n'
+    '        if (rec["\\u81EA\\u7531\\u884C"]) toFallback("\\u81EA\\u7531\\u8A18\\u5165\\uFF08\\u884C\\u76EE\\uFF09", rec["\\u81EA\\u7531\\u884C"].split(" / ").join("\\r"));\n'
+    '\n'
+    '        if (fallback.length > 0) {\n'
+    '            try {\n'
+    '                addFallbackBlock(doc, fallback);\n'
+    '                warnings.push("\\u7F6E\\u304D\\u5834\\u6240\\u304C\\u898B\\u3064\\u304B\\u3089\\u306A\\u304B\\u3063\\u305F\\u9805\\u76EE\\u3092\\u4E2D\\u5FC3\\u304B\\u30895cm\\u4E0A\\u306B\\u5165\\u308C\\u307E\\u3057\\u305F\\uFF08\\u79FB\\u52D5\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044\\uFF09: " + fallbackNames.join("\\u3001"));\n'
+    '            } catch (fbErr) {\n'
+    '                warnings.push("\\u9805\\u76EE\\u3092\\u5165\\u308C\\u3089\\u308C\\u307E\\u305B\\u3093\\u3067\\u3057\\u305F\\uFF08" + fbErr.message + "\\uFF09: " + oneLine(fallback.join(" / "), 120));\n'
+    '            }\n'
+    '        }\n'
+    '\n'
     '        // \\u540D\\u523A\\u306B\\u306F\\u5165\\u308C\\u3066\\u3044\\u306A\\u3044\\u304C\\u3001\\u76EE\\u3067\\u78BA\\u8A8D\\u3057\\u3066\\u307B\\u3057\\u3044\\u60C5\\u5831\n'
     '        if (C.hasLogoData(rec)) warnings.push("\\u30ED\\u30B4\\u30C7\\u30FC\\u30BF\\u6709\\u308A: LOGO \\u306E\\u4F4D\\u7F6E\\u306B\\u30ED\\u30B4\\u3092\\u914D\\u7F6E\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044");\n'
-    '        if (rec["\\u81EA\\u7531\\u884C"]) warnings.push("\\u81EA\\u7531\\u8A18\\u5165\\uFF08\\u884C\\u76EE\\uFF09: " + oneLine(rec["\\u81EA\\u7531\\u884C"], 80));\n'
     '        if (rec["\\u5099\\u8003"]) {\n'
     '            try { addRemarks(doc, rec["\\u5099\\u8003"], warnings); }\n'
     '            catch (remarkErr) { warnings.push("\\u5099\\u8003\\u3092\\u5165\\u308C\\u3089\\u308C\\u307E\\u305B\\u3093\\u3067\\u3057\\u305F\\uFF08" + remarkErr.message + "\\uFF09: " + oneLine(rec["\\u5099\\u8003"], 80)); }\n'
@@ -1435,6 +1508,7 @@ JOB_JSX = (
     '        pickMarks: pickMarks,\n'
     '        addRemarks: addRemarks,\n'
     '        addLabelAbove: addLabelAbove,\n'
+    '        fallbackLine: fallbackLine,\n'
     '        mergeSplitLabels: mergeSplitLabels,\n'
     '        REMARK_OFFSET: REMARK_OFFSET,\n'
     '        FALLBACK_OFFSET: FALLBACK_OFFSET,\n'

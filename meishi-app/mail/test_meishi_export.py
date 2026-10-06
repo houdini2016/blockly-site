@@ -134,6 +134,25 @@ class MultipleCardsTests(unittest.TestCase):
         self.assertEqual(cards[0]["備考"], "2枚とも急ぎでお願いします")
 
 
+class MailNumberTests(unittest.TestCase):
+    def mail(self, *lines):
+        c = M.card_from_order({"order_id": "1"}, [{"label": "住所", "group": "address",
+                                                    "value": "〒100-0005\n東京都千代田区\n" + "\n".join(lines)}])
+        return c["メール"]
+
+    def test_only_01(self):
+        self.assertEqual(self.mail("E-mail：01 sample@gmail.com"), "sample@gmail.com")   # 01 を残さない
+        self.assertEqual(self.mail("E-mail：01 sample"), "sample")                       # 02 がなければそのまま
+
+    def test_01_and_02_not_joined_by_app(self):
+        self.assertEqual(self.mail("E-mail：01 sample", "TEL：03-1111-2222", "E-mail：02 gmail.com"), "sample@gmail.com")
+        self.assertEqual(self.mail("E-mail：01 sample@", "E-mail：02 @gmail.com"), "sample@gmail.com")
+
+    def test_normal_address_untouched(self):
+        self.assertEqual(self.mail("E-mail：taro@example.co.jp"), "taro@example.co.jp")
+        self.assertEqual(self.mail("E-mail：1abc@example.jp"), "1abc@example.jp")
+
+
 class RemarkTests(unittest.TestCase):
     BP = ("【不明点など確認時のご連絡先 電話番号やアドレス】\n\n"
           "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n\n" + "-" * 69)

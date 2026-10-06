@@ -55,6 +55,18 @@ function makeDoc(texts) {
         doc.added.push(t);
         return t;
     };
+    // 「追加テキスト」レイヤー（足すテキストはここに入る）
+    var layers = [];
+    doc.layers = {
+        getByName: function (n) {
+            for (var i = 0; i < layers.length; i++) if (layers[i].name === n) return layers[i];
+            throw new Error("no such layer");
+        },
+        add: function () {
+            var l = { name: "", locked: false, visible: true, textFrames: { add: doc.textFrames.add } };
+            layers.push(l); doc.addedLayers = layers; return l;
+        }
+    };
     return doc;
 }
 
@@ -208,7 +220,7 @@ test("ふりがな: 氏名の上に、氏名と同じフォントで 5pt・中�
     assert.strictEqual(f.textRange.characterAttributes.size, 5);
     assert.strictEqual(f.textRange.characterAttributes.textFont, "RyuminPr5-Regular(氏名)");
     assert.deepStrictEqual(f.position, [(229 + 330) / 2 - 20, -400 + 1 + 6]);   // 中央・1pt 上
-    assert.strictEqual(f.movedBefore, nameFrame);
+    assert.strictEqual(doc.addedLayers[0].name, "追加テキスト");           // 専用のレイヤーに入る
     assert.ok(w.join("\n").indexOf("差し込み先がない") < 0, w.join("\n"));
 });
 
@@ -292,17 +304,31 @@ test("部署名: 肩書も氏名も場所がなければ会社名の下", functi
     assert.ok(w.join("\n").indexOf("会社名の下") >= 0);
 });
 
-test("部署名・ふりがな: 置く場所がなければ中心から5cm上", function () {
+test("置き場所がない項目（ふりがな・部署名・テンプレートにない項目・自由記入）は中心から5cm上にまとめて", function () {
     var doc = withArtboard(makeDoc([["Tel : 000-000-0000", [0, 0, 10, -10]]]));
     var w = [];
-    AI.editDocument(doc, { "部署": "営業部", "ふりがな": "やまだ", "TEL": "03-1" }, w);
+    AI.editDocument(doc, { "部署": "営業部", "ふりがな": "やまだ", "TEL": "03-1", "FAX": "03-2",
+                           "会社名": "株式会社A", "自由行": "一級建築士 / 宅建士" }, w);
     var cx = 612.3 / 2, cy = 858.9 / 2, up = 50 * 72 / 25.4;
-    assert.strictEqual(doc.added.length, 2);
-    doc.added.forEach(function (t) {
-        assert.ok(Math.abs(t.position[0] - (cx - 20)) < 0.01);
-        assert.ok(Math.abs(t.position[1] - (cy + up)) < 0.01);
-    });
+    assert.strictEqual(doc.added.length, 1);                                 // 1つにまとめる（重ならない）
+    var t = doc.added[0];
+    assert.strictEqual(t.contents, "やまだ\r営業部\r株式会社A\rFAX：03-2\r一級建築士\r宅建士");
+    assert.strictEqual(t.textRange.characterAttributes.size, 8);
+    assert.strictEqual(t.textRange.characterAttributes.textFont, undefined);  // デフォルトのフォント
+    assert.ok(Math.abs(t.position[0] - (cx - 20)) < 0.01);
+    assert.ok(Math.abs(t.position[1] - (cy + up)) < 0.01);
     assert.ok(w.join("\n").indexOf("中心から5cm上") >= 0);
+});
+
+test("部署名: 肩書の上に入れられない（エラー）ときは次の場所、だめなら中心から5cm上", function () {
+    var doc = withArtboard(makeDoc([["店\u3000長", [264, -381, 290, -389]], ["鈴\u3000木\u3000花\u3000子", [264, -388, 348, -405]]]));
+    var calls = 0, realAdd = doc.textFrames.add;
+    doc.textFrames.add = function () { calls++; if (calls <= 2) throw new Error("Target layer cannot be modified"); return realAdd(); };
+    var w = [];
+    AI.editDocument(doc, { "部署": "営業部", "肩書": "部長", "氏名": "山田 太郎" }, w);
+    assert.strictEqual(doc.added.length, 1);
+    assert.strictEqual(doc.added[0].contents, "営業部");
+    assert.ok(w.join("\n").indexOf("中心から5cm上") >= 0, w.join("\n"));
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
