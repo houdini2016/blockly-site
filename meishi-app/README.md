@@ -105,6 +105,9 @@ Illustrator 用のスクリプト（meishi_core.jsx・meishi_ai.jsx・meishi_job
 | 氏名英字 / 肩書英字 / 会社名英字 | Taro Yamada / President | 英語面の `Ichiro Suzuki` / `President` / `artcode` |
 | 英字住所1 / 英字住所2 | 1-2-3 Marunouchi, … | 英語面の住所2行 |
 
+- 見出しのコロンは **全角の「：」・前後の空白なし** にそろえます（例：`Tel : 000-…` → `Tel：03-1234-5678`）。
+  URL とコロンのない見出し（`TEL 000-…`・`電話　〇〇〇…`）はそのまま。
+  「E-mail」と「  : ooooo@…」が別のテキストのデザインは、1つのテキストにまとめてからそろえます
 - **空欄の項目は、その行ごと消えます**（FAX がない人は「Fax :」の行がなくなる）
 - 見出しの別名（「受注番号」「お名前」「電話番号」など）も読めます。追加は `meishi_core.jsx` の `FIELD_ALIASES`
 - Excel で保存した CSV（Shift_JIS）でも「CSV UTF-8」でも読めます

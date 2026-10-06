@@ -192,6 +192,45 @@ var MeishiAI = (function () {
         warnings.push("備考を名刺の下（中心から8cm下）に入れました");
     }
 
+    // ----- 見出しと値が別のテキストになっているデザイン -----
+    //  「E-mail」と「  : ooooo@oooo.com」を重ねて置いているデザイン（372 個）は、
+    //  そのままコロンを詰めると「：」が見出しに重なるので、見出しのテキストに1つにまとめる。
+    //  （URL は対象外。まとめたあとの「：」は meishi_core.jsx の決まりでそろう）
+    function mergeSplitLabels(doc) {
+        var labels = [], values = [], removed = [];
+        for (var i = 0; i < doc.textFrames.length; i++) {
+            var tf = doc.textFrames[i], t = tf.contents;
+            if (/[\r\n\u0003]/.test(t)) continue;
+            var field = C.labelOnlyField(t);
+            if (field && field !== "URL") labels.push(tf);
+            else if (/^[ \t\u3000]*[:：]/.test(t)) values.push(tf);
+        }
+        for (var l = 0; l < labels.length; l++) {
+            var lb = labels[l].geometricBounds, h = lb[1] - lb[3];
+            var best = null, bestGap = 0;
+            for (var v = 0; v < values.length; v++) {
+                if (!values[v]) continue;
+                var vb = values[v].geometricBounds;
+                var vOverlap = Math.min(lb[1], vb[1]) - Math.max(lb[3], vb[3]);
+                var gap = vb[0] - lb[0];                          // 値は見出しの右側（重なっていてもよい）
+                if (vOverlap < Math.min(h, vb[1] - vb[3]) * 0.5 || gap < 0 || vb[0] > lb[2] + h * 3) continue;
+                if (!best || gap < bestGap) { best = v; bestGap = gap; }
+            }
+            if (best === null) continue;
+            var valueFrame = values[best];
+            var relock = unlockFor(labels[l]);
+            var relock2 = unlockFor(valueFrame);
+            labels[l].contents = labels[l].contents.replace(/[ \t\u3000:：]+$/, "") + ":" +
+                                 valueFrame.contents.replace(/^[ \t\u3000]*[:：]/, "");
+            removed.push(valueFrame);
+            valueFrame.remove();
+            values[best] = null;
+            relock();
+            try { relock2(); } catch (e) { /* 消したテキストのロックは戻さない */ }
+        }
+        return removed;
+    }
+
     // ----- ふりがな・部署名（新しいテキストとして足す） -----
 
     var FURIGANA_SIZE = 5;     // ふりがな：氏名の上に 5pt
@@ -242,10 +281,17 @@ var MeishiAI = (function () {
     // 書類の文字を注文内容に書き換える。確認してほしいことを warnings に足す。
     function editDocument(doc, rec, warnings) {
         removeLogoMarks(doc, rec, warnings);   // LOGO の文字が会社名に変わる前に探す
+        var merged = [];
+        try { merged = mergeSplitLabels(doc); }
+        catch (mergeErr) { warnings.push("「E-mail」などの見出しをまとめられませんでした（" + mergeErr.message + "）"); }
 
         var used = [];
         var frames = [];
-        for (var i = 0; i < doc.textFrames.length; i++) frames.push(doc.textFrames[i]);
+        for (var i = 0; i < doc.textFrames.length; i++) {
+            var skip = false;
+            for (var mg = 0; mg < merged.length; mg++) if (merged[mg] === doc.textFrames[i]) skip = true;
+            if (!skip) frames.push(doc.textFrames[i]);
+        }
 
         var values = C.prepareValues(rec);
         var nameInfo = null, titleInfo = null;   // ふりがな・部署名を置く場所の目印
@@ -343,6 +389,7 @@ var MeishiAI = (function () {
         pickMarks: pickMarks,
         addRemarks: addRemarks,
         addLabelAbove: addLabelAbove,
+        mergeSplitLabels: mergeSplitLabels,
         REMARK_OFFSET: REMARK_OFFSET,
         editDocument: editDocument
     };

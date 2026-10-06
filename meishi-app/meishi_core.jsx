@@ -113,6 +113,7 @@ var MeishiCore = (function () {
     var LEFTOVER_PATTERNS = [/[○〇]/, /000-/, /ooooo@/, /0123456/];
 
     var WS = "[ \\t\\u3000]";           // 空白（半角・全角・タブ）
+    var COLON = "：";                   // 見出しと値の間のコロン（全角・前後の空白なし）
     var LINE_BREAK = /[\r\n\u0003]/;   // Illustrator の改行（\r）と強制改行（\u0003）
 
     // ===== 小さな道具 =====================================================
@@ -205,6 +206,17 @@ var MeishiCore = (function () {
         v["会社名_前"] = m ? m[1] : "";
         v["会社名_後"] = m ? company.substring(m[0].length) : company;
         return v;
+    }
+
+    // テキストが「E-mail」のような見出しだけなら、その項目名を返す（値が別のテキストになっているデザイン用）
+    function labelOnlyField(text) {
+        for (var L = 0; L < LABELS.length; L++) {
+            for (var w = 0; w < LABELS[L].words.length; w++) {
+                var only = new RegExp("^" + WS + "*" + looseSource(LABELS[L].words[w]) + WS + "*[:：]?" + WS + "*$");
+                if (only.test(text)) return LABELS[L].field;
+            }
+        }
+        return null;
     }
 
     // その文字が「LOGO」などロゴの仮の文字か（LOGO 横のマークを探すときに使う）
@@ -405,7 +417,8 @@ var MeishiCore = (function () {
                     var labelStart = m.index + m[1].length;
                     var dup = false;
                     for (var d = 0; d < found.length; d++) if (found[d].labelStart === labelStart) dup = true;
-                    if (!dup) found.push({ field: LABELS[L].field, labelStart: labelStart, valueStart: m.index + m[0].length });
+                    if (!dup) found.push({ field: LABELS[L].field, labelStart: labelStart, valueStart: m.index + m[0].length,
+                                           labelEnd: labelStart + m[2].length, colon: /[:：]/.test(m[3]) });
                 }
             }
         }
@@ -416,7 +429,13 @@ var MeishiCore = (function () {
             if (vEnd <= found[i].valueStart) continue;  // 値がない見出しは触らない
             var v = val(found[i].field);
             if (v !== "") {
-                add(found[i].valueStart, vEnd, kanjiIfNeeded(line.substring(found[i].valueStart, vEnd), v, found[i].field), found[i].field);
+                var newValue = kanjiIfNeeded(line.substring(found[i].valueStart, vEnd), v, found[i].field);
+                if (found[i].colon && found[i].field !== "URL") {
+                    // 「Tel : 」→「Tel：」（コロンの前後の空白をなくし、全角のコロンにする。URL はそのまま）
+                    add(found[i].labelEnd, vEnd, COLON + newValue, found[i].field);
+                } else {
+                    add(found[i].valueStart, vEnd, newValue, found[i].field);
+                }
             } else {
                 // 値が空 → 見出しごと消す（前の空白も消す）
                 var s = found[i].labelStart;
@@ -628,6 +647,7 @@ var MeishiCore = (function () {
         prepareValues: prepareValues,
         hasLogoData: hasLogoData,
         isLogoText: isLogoText,
+        labelOnlyField: labelOnlyField,
         planEdits: planEdits,
         applyEditsToString: applyEditsToString,
         matchSpacing: matchSpacing,

@@ -47,8 +47,8 @@ var B008 = "○○○県○○市○○町00-00-0\r○○○○○000号\rTe l :
 test("business008: 住所・電話・メール・URL", function () {
     var r = run(B008, FULL);
     assert.strictEqual(r.text,
-        "東京都千代田区丸の内1-2-3\rサンプルビル5F\rTe l : 03-1234-5678\rFax : 03-1234-5679\r" +
-        "Mobile: 090-1111-2222\rE-mail\t: hanako@example.co.jp\rhttps://example.co.jp/");
+        "東京都千代田区丸の内1-2-3\rサンプルビル5F\rTe l：03-1234-5678\rFax：03-1234-5679\r" +
+        "Mobile：090-1111-2222\rE-mail：hanako@example.co.jp\rhttps://example.co.jp/");
     assert.ok(!C.hasLeftover(r.text));
 });
 
@@ -58,8 +58,8 @@ test("business008: 空欄の項目は行ごと消える（FAX・住所2・URL）
     rec["FAX"] = ""; rec["住所2"] = ""; rec["URL"] = "";
     var r = run(B008, rec);
     assert.strictEqual(r.text,
-        "東京都千代田区丸の内1-2-3\rTe l : 03-1234-5678\r" +
-        "Mobile: 090-1111-2222\rE-mail\t: hanako@example.co.jp");
+        "東京都千代田区丸の内1-2-3\rTe l：03-1234-5678\r" +
+        "Mobile：090-1111-2222\rE-mail：hanako@example.co.jp");
 });
 
 // ---- abstract001 -----------------------------------------------------
@@ -86,7 +86,7 @@ var EN = {
 test("裏面B: 英字住所と、1行に2つある Tel/Fax（Fax は空欄なので消える）", function () {
     var r = run(BACK_B, EN);
     assert.strictEqual(r.text,
-        "1-2-3 Marunouchi, Chiyoda-ku,\rTokyo 100-0005, Japan\rTel:+81-3-1234-5678\rE-mail:hanako@example.co.jp");
+        "1-2-3 Marunouchi, Chiyoda-ku,\rTokyo 100-0005, Japan\rTel：+81-3-1234-5678\rE-mail：hanako@example.co.jp");
 });
 
 test("裏面B: 社名・肩書・氏名（その行だけの文字）", function () {
@@ -94,11 +94,11 @@ test("裏面B: 社名・肩書・氏名（その行だけの文字）", function
     assert.strictEqual(run("President", EN).text, "Sales Manager");
     assert.strictEqual(run("Ichiro Suzuki", EN).text, "Hanako Yamada");
     // shop@artcode.jp の中の artcode は社名として置き換えない
-    assert.strictEqual(run("E-mail:shop@artcode.jp", EN).text, "E-mail:hanako@example.co.jp");
+    assert.strictEqual(run("E-mail:shop@artcode.jp", EN).text, "E-mail：hanako@example.co.jp");
 });
 
 test("文字の間に空白が入っていても見出しを見つける（T e l :）", function () {
-    assert.strictEqual(run("T e l : 0 4 6 - 8 7 4 - 4 2 3 4", EN).text, "T e l : +81-3-1234-5678");
+    assert.strictEqual(run("T e l : 0 4 6 - 8 7 4 - 4 2 3 4", EN).text, "T e l：+81-3-1234-5678");
 });
 
 // ---- 裏面A（業務内容）は差し込み先がないので何も変えない -------------
@@ -191,7 +191,7 @@ test("指示ファイル: パーセント表記を元に戻す・空行で次の
 test("見つからない仮の文字が残る行は消す（お客さんの値の 000- は数えない）", function () {
     var plan = C.planEdits("営業時間\r○○○○ 000-000\rTel : 000-000-0000", { "TEL": "03-1000-2000" });
     assert.strictEqual(C.applyEditsToString("営業時間\r○○○○ 000-000\rTel : 000-000-0000", plan.edits),
-                       "営業時間\rTel : 03-1000-2000");
+                       "営業時間\rTel：03-1000-2000");
     assert.deepStrictEqual(plan.leftoverRemoved, ["○○○○ 000-000"]);
     // 検査ツール用：消さずに知らせる
     var keep = C.planEdits("○○○○ 000-000", {}, { keepLeftover: true });
@@ -206,7 +206,7 @@ test("漢数字: 仮の文字が〇なら数字を漢数字にする（○の普
     assert.strictEqual(run("電\u3000話\u3000〇〇〇ー〇〇〇ー〇〇〇〇", rec).text, "電\u3000話\u3000〇三ー一二三四ー五六七八");
     assert.strictEqual(run("〒〇〇〇ー〇〇〇〇", rec).text, "〒一〇〇ー〇〇〇五");
     assert.strictEqual(run("〇〇〇県〇〇〇市〇〇〇町〇〇ー〇ー〇〇", rec).text, "東京都港区一ー二ー三");
-    assert.strictEqual(run("Tel : 000-000-0000", rec).text, "Tel : 03-1234-5678");
+    assert.strictEqual(run("Tel : 000-000-0000", rec).text, "Tel：03-1234-5678");
     assert.strictEqual(run("○○○県○○市○○町00-00-0", rec).text, "東京都港区1-2-3");
 });
 
@@ -261,6 +261,19 @@ test("項目の位置（ふりがな・部署名を置くため）", function ()
     assert.strictEqual(p.fieldPos["肩書"], 0);
     assert.strictEqual(p.fieldPos["氏名"], 5);
     assert.strictEqual(C.planEdits("店長", { "肩書": "" }).fieldPos["肩書"], 0);   // 行ごと消しても位置は分かる
+});
+
+// ---- コロン（URL 以外は全角・前後の空白なし） -------------------------
+test("コロン: 「Tel : 」「Fax :」「Mobile: 」「E-mail\\t: 」→ 全角「：」で空白なし", function () {
+    var rec = { "TEL": "03-1", "FAX": "03-2", "携帯": "090-3", "メール": "a@b.jp", "URL": "https://b.jp/" };
+    assert.strictEqual(run("Tel : 000-000-0000", rec).text, "Tel：03-1");
+    assert.strictEqual(run("Fax :0 0 0 - 0 0 0 - 0 0 0 0", rec).text, "Fax：03-2");
+    assert.strictEqual(run("Mobile: 000-0000-0000", rec).text, "Mobile：090-3");
+    assert.strictEqual(run("E-mail\t: ooooo@oooo.com", rec).text, "E-mail：a@b.jp");
+    assert.strictEqual(run("電話：000-000-0000", rec).text, "電話：03-1");
+    assert.strictEqual(run("Tel:046-874-4234 Fax:020-4669-2749", rec).text, "Tel：03-1 Fax：03-2");
+    assert.strictEqual(run("URL : http://www.0123456.jp/", rec).text, "URL : https://b.jp/");   // URL はそのまま
+    assert.strictEqual(run("TEL 000-000-0000", rec).text, "TEL 03-1");                         // コロンなしはそのまま
 });
 
 // ---- その他 ---------------------------------------------------------

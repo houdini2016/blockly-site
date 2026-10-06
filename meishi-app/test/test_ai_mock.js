@@ -91,8 +91,8 @@ test("business008: 流し込みとLOGO横のマーク削除", function () {
     assert.strictEqual(t[0], "株式会社サンプル");
     assert.strictEqual(t[1], "部長山　田　太　郎");
     assert.strictEqual(t[2], "〒100-0005");
-    assert.strictEqual(t[3], "東京都千代田区丸の内1-2-3\rTe l : 03-1234-5678\rMobile: 090-1111-2222\r" +
-                             "E-mail\t: taro@example.co.jp\rhttps://example.co.jp/");
+    assert.strictEqual(t[3], "東京都千代田区丸の内1-2-3\rTe l：03-1234-5678\rMobile：090-1111-2222\r" +
+                             "E-mail：taro@example.co.jp\rhttps://example.co.jp/");
     assert.strictEqual(doc.removed.length, 1);                      // マークだけ消える
     assert.deepStrictEqual(doc.rasterItems[0].geometricBounds, [196, -443, 252, -499]);   // QRは残る
     assert.ok(w.join("\n").indexOf("マークを 1 個消しました") >= 0, w.join("\n"));
@@ -128,7 +128,7 @@ test("住所〜E-mail のテキスト: 未入力の Fax・Mobile・E-mail・住�
     var doc = makeDoc([["〒000-0000", [0, 0, 10, -10]], [ADDRESS_BLOCK, [0, 0, 10, -10]]]);
     AI.editDocument(doc, HASHIMOTO, []);
     assert.strictEqual(doc.textFrames[0].contents, "〒272-0811");
-    assert.strictEqual(doc.textFrames[1].contents, "千葉県市川市北方町1-2-3\rTel :047-123-4567");
+    assert.strictEqual(doc.textFrames[1].contents, "千葉県市川市北方町1-2-3\rTel：047-123-4567");
 });
 
 test("未入力で空になったテキスト（肩書の枠など）はテキストごと消す", function () {
@@ -154,7 +154,7 @@ test("Illustrator が改行をまたぐ削除でエラーを出しても、中�
     } });
     var w = [];
     AI.editDocument(doc, HASHIMOTO, w);
-    assert.strictEqual(tf.contents, "千葉県市川市北方町1-2-3\rTel :047-123-4567");
+    assert.strictEqual(tf.contents, "千葉県市川市北方町1-2-3\rTel：047-123-4567");
     assert.ok(w.join("\n").indexOf("書式が一部くずれた") >= 0);
 });
 
@@ -252,6 +252,26 @@ test("縦書きの氏名: ふりがなは右どなりに縦書きで", function 
     assert.strictEqual(doc.textFrames[0].contents, "山田\r\u3000太郎");
     assert.strictEqual(doc.added[0].orientation, "vertical");
     assert.deepStrictEqual(doc.added[0].position, [311, -400]);
+});
+
+test("コロン: 見出しと値が別テキストなら1つにまとめて「E-mail：アドレス」に", function () {
+    var doc = makeDoc([["E-mail", [312.8, -478.9, 332.0, -485.9]], ["  : ooooo@oooo.com", [325.5, -478.9, 399.7, -485.9]],
+                       ["Tel : 000-000-0000", [312.8, -470, 380, -477]], ["URL", [312.8, -490, 330, -497]],
+                       ["  : http://www.0123456.jp/", [325.5, -490, 400, -497]]]);
+    var valueFrame = doc.textFrames[1];
+    AI.editDocument(doc, { "メール": "taro@example.co.jp", "TEL": "03-1234-5678", "URL": "https://example.co.jp/" }, []);
+    assert.strictEqual(doc.textFrames[0].contents, "E-mail：taro@example.co.jp");
+    assert.ok(valueFrame.removed);
+    assert.strictEqual(doc.textFrames[2].contents, "Tel：03-1234-5678");
+    assert.strictEqual(doc.textFrames[3].contents, "URL");                        // URL はまとめない・そのまま
+    assert.strictEqual(doc.textFrames[4].contents, "  : https://example.co.jp/");
+});
+
+test("コロン: メールが未入力なら見出しも値も消える", function () {
+    var doc = makeDoc([["E-mail", [312.8, -478.9, 332.0, -485.9]], ["  : ooooo@oooo.com", [325.5, -478.9, 399.7, -485.9]]]);
+    var label = doc.textFrames[0], value = doc.textFrames[1];
+    AI.editDocument(doc, { "氏名": "山田 太郎" }, []);
+    assert.ok(label.removed && value.removed);
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
