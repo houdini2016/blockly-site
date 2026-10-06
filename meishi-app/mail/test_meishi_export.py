@@ -36,6 +36,10 @@ RAKUTEN_ITEMS = [
 ]
 
 
+def self_card():
+    return {"注文番号": "1", "氏名": "山田 太郎", "会社名": "株式会社A&B, \"テスト\""}
+
+
 class CardFromOrderTests(unittest.TestCase):
     def rakuten(self):
         order = {"order_id": "297406-20261006-0833446491", "mall": "楽天", "customer": "山田 太郎",
@@ -97,6 +101,23 @@ class CardFromOrderTests(unittest.TestCase):
             self.assertEqual(list(rows[0].keys()), M.CSV_COLUMNS)
 
 class JobScriptTests(unittest.TestCase):
+    def test_write_job_is_ascii(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "job.txt")
+            card = dict(self_card(), テンプレート="/Dropbox/1名刺表札作業用/business008.ai")
+            M.write_job(path, [card, card])
+            with open(path, "rb") as f:
+                data = f.read()
+            data.decode("ascii")                                   # 英数字だけ（化けない）
+            lines = data.decode("ascii").split("\n")
+            self.assertEqual(lines[0], "MEISHIJOB1")
+            self.assertIn("%E3%83%86%E3%83%B3%E3%83%97%E3%83%AC%E3%83%BC%E3%83%88\t"   # テンプレート
+                          "%2FDropbox%2F1%E5%90%8D%E5%88%BA", data.decode("ascii"))
+            self.assertEqual(lines.count(""), 3)                   # 2件の区切り＋最後
+
+    def test_embedded_script_is_ascii(self):
+        self.assertTrue(all(ord(c) < 128 for c in M.JOB_JSX))
+
     def test_embedded_script_is_up_to_date(self):
         # .jsx を直したのに tools/bundle_jsx.py を実行し忘れていないか
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))

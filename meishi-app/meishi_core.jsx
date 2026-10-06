@@ -432,6 +432,26 @@ var MeishiCore = (function () {
         return false;
     }
 
+    // ===== 注文通知アプリからの指示ファイル ================================
+    //  文字コードの違いで化けないよう、英数字だけで書かれている。
+    //    1行目: MEISHIJOB1
+    //    「項目名<タブ>値」を1行ずつ（どちらも %E5%90%8D のような UTF-8 のパーセント表記）
+    //    空の行で次の注文に区切る
+    function parseJob(text) {
+        var lines = String(text).replace(/^\uFEFF/, "").split(/\r\n|\r|\n/);
+        if (trim(lines[0]) !== "MEISHIJOB1") return null;
+        var records = [], rec = null;
+        for (var i = 1; i < lines.length; i++) {
+            var line = lines[i];
+            if (trim(line) === "") { rec = null; continue; }
+            var tab = line.indexOf("\t");
+            if (tab < 0) continue;
+            if (!rec) { rec = {}; records.push(rec); }
+            rec[decodeURIComponent(line.substring(0, tab))] = decodeURIComponent(line.substring(tab + 1));
+        }
+        return records;
+    }
+
     // ===== 文字コード・デザイン番号 ========================================
 
     // バイト列（1文字=1バイトの文字列）が UTF-8 か Shift_JIS かを判定する。
@@ -479,6 +499,7 @@ var MeishiCore = (function () {
         LABELS: LABELS,
         trim: trim,
         parseCSV: parseCSV,
+        parseJob: parseJob,
         rowsToRecords: rowsToRecords,
         INFO_FIELDS: INFO_FIELDS,
         prepareValues: prepareValues,

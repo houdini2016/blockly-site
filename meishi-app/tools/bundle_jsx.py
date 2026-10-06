@@ -20,7 +20,26 @@ def bundled_jsx():
     job = re.sub(r'^#include "meishi_core.jsx"\n', lambda m: read("meishi_core.jsx") + "\n", job, flags=re.M)
     job = re.sub(r'^#include "meishi_ai.jsx"\n', lambda m: read("meishi_ai.jsx") + "\n", job, flags=re.M)
     assert not re.search(r"^#include", job, flags=re.M)
-    return job
+    return to_ascii(job)
+
+
+def to_ascii(text):
+    """日本語などを \\uXXXX に置き換えて、英数字だけのスクリプトにする。
+
+    Illustrator がスクリプトをどの文字コードで読んでも、日本語が化けないようにするため。
+    （文字列・正規表現・コメントのどこにあっても \\uXXXX は同じ意味になる）
+    """
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if code < 0x80:
+            out.append(ch)
+        elif code <= 0xFFFF:
+            out.append("\\u%04X" % code)
+        else:  # 絵文字など（2つの \\u に分ける）
+            code -= 0x10000
+            out.append("\\u%04X\\u%04X" % (0xD800 + (code >> 10), 0xDC00 + (code & 0x3FF)))
+    return "".join(out)
 
 
 def main():

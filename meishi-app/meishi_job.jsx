@@ -1,7 +1,7 @@
 ﻿// =====================================================================
 //  名刺自動作成（注文通知アプリの［名刺を作成］ボタンから呼ばれるスクリプト）
 //
-//  注文通知アプリが書き出した「meishi_job.csv」を読み、1行ごとに
+//  注文通知アプリが書き出した「meishi_job.txt」を読み、注文ごとに
 //    1. 指定されたテンプレート(.ai)を開く
 //    2. 注文内容を流し込む
 //    3. 指定された名前で別名保存する
@@ -17,14 +17,21 @@
 
 (function () {
     var C = MeishiCore;
-    var JOB_FILE = new File(Folder.userData + "/meishi_job.csv");
+    var JOB_FILE = new File(Folder.userData + "/meishi_job.txt");
 
     if (!JOB_FILE.exists) {
         alert("名刺作成の指示ファイルが見つかりません。\n注文通知アプリの［名刺を作成］ボタンから実行してください。");
         return;
     }
-    var records = C.rowsToRecords(C.parseCSV(MeishiAI.readTextFile(JOB_FILE))).records;
+    JOB_FILE.encoding = "UTF-8";   // 中身は英数字だけ
+    JOB_FILE.open("r");
+    var records = C.parseJob(JOB_FILE.read());
+    JOB_FILE.close();
     JOB_FILE.remove();   // 同じ指示で二度作らないように消す
+    if (!records) {
+        alert("名刺作成の指示ファイルの形が違います。注文通知アプリを最新版にしてください。");
+        return;
+    }
 
     var report = [];
     var oldLevel = app.userInteractionLevel;
@@ -33,8 +40,14 @@
         for (var i = 0; i < records.length; i++) {
             var rec = records[i];
             var warnings = [];
-            var tpl = new File(rec["テンプレート"] || "");
-            var out = new File(rec["保存先"] || "");
+            if (!rec["テンプレート"] || !rec["保存先"]) {
+                var keys = [];
+                for (var k in rec) if (rec.hasOwnProperty(k)) keys.push(k);
+                report.push("✕ " + (rec["注文番号"] || "") + "\n   テンプレートか保存先が指定されていません（受け取った項目: " + keys.join("、") + "）");
+                continue;
+            }
+            var tpl = new File(rec["テンプレート"]);
+            var out = new File(rec["保存先"]);
             var title = (rec["注文番号"] || "") + "  " + decodeURI(out.name);
             if (!tpl.exists) {
                 report.push("✕ " + (rec["注文番号"] || "") + "\n   テンプレートが見つかりません: " + tpl.fsName);

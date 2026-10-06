@@ -172,6 +172,21 @@ test("増やした仮の文字: ROGO・店長・2行の住所・縦書きの電�
     assert.strictEqual(run("Web デザイン", rec).text, "Web デザイン");   // 見出しに見えても値でなければ触らない
 });
 
+// ---- 注文通知アプリからの指示ファイル --------------------------------
+test("指示ファイル: パーセント表記を元に戻す・空行で次の注文", function () {
+    var text = "MEISHIJOB1\n" +
+        encodeURIComponent("注文番号") + "\t1\n" +
+        encodeURIComponent("テンプレート") + "\t" + encodeURIComponent("/Dropbox/名刺/business008.ai") + "\n" +
+        encodeURIComponent("会社名") + "\t" + encodeURIComponent("A&B, \"テスト\"\t%") + "\n\n" +
+        encodeURIComponent("注文番号") + "\t2\n";
+    var r = C.parseJob(text);
+    assert.strictEqual(r.length, 2);
+    assert.strictEqual(r[0]["テンプレート"], "/Dropbox/名刺/business008.ai");
+    assert.strictEqual(r[0]["会社名"], "A&B, \"テスト\"\t%");
+    assert.strictEqual(r[1]["注文番号"], "2");
+    assert.strictEqual(C.parseJob("注文番号,氏名\n1,a"), null);   // 古い形は読まない
+});
+
 // ---- その他 ---------------------------------------------------------
 test("部署は肩書の前に付く", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });
