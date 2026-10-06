@@ -1,0 +1,151 @@
+// meishi_core.jsx のテスト（Illustrator がなくても動きます）
+//   実行方法:  node meishi-app/test/test_core.js
+// テンプレートの文字は、いただいたサンプル（business008 / abstract001 / 裏面B）から取り出したものです。
+
+var assert = require("assert");
+var path = require("path");
+var C = require(path.join(__dirname, "..", "meishi_core.jsx"));
+
+var failures = 0;
+function test(name, fn) {
+    try { fn(); console.log("ok   " + name); }
+    catch (e) { failures++; console.log("FAIL " + name + "\n     " + e.message); }
+}
+function run(contents, rec) {
+    var plan = C.planEdits(contents, rec);
+    return { text: C.applyEditsToString(contents, plan.edits), used: plan.used };
+}
+
+var FULL = {
+    "注文番号": "123456-20261006-0000000001",
+    "デザイン番号": "business008",
+    "肩書": "営業部長",
+    "氏名": "山田 花子",
+    "郵便番号": "123-4567",
+    "住所1": "東京都千代田区丸の内1-2-3",
+    "住所2": "サンプルビル5F",
+    "TEL": "03-1234-5678",
+    "FAX": "03-1234-5679",
+    "携帯": "090-1111-2222",
+    "メール": "hanako@example.co.jp",
+    "URL": "https://example.co.jp/"
+};
+
+// ---- business008 -----------------------------------------------------
+test("business008: 肩書と1文字ずつ空けた氏名", function () {
+    var r = run("代表取締役鈴　木　太　郎", FULL);
+    assert.strictEqual(r.text, "営業部長山　田　花　子");
+});
+
+test("business008: 郵便番号（〒は残す）", function () {
+    assert.strictEqual(run("〒000-0000", FULL).text, "〒123-4567");
+});
+
+var B008 = "○○○県○○市○○町00-00-0\r○○○○○000号\rTe l : 000-000-0000\rFax : 000-000-0000\r" +
+           "Mobile: 000-0000-0000\rE-mail\t: ooooo@oooo.com\rhttp://www.0123456.jp/";
+
+test("business008: 住所・電話・メール・URL", function () {
+    var r = run(B008, FULL);
+    assert.strictEqual(r.text,
+        "東京都千代田区丸の内1-2-3\rサンプルビル5F\rTe l : 03-1234-5678\rFax : 03-1234-5679\r" +
+        "Mobile: 090-1111-2222\rE-mail\t: hanako@example.co.jp\rhttps://example.co.jp/");
+    assert.ok(!C.hasLeftover(r.text));
+});
+
+test("business008: 空欄の項目は行ごと消える（FAX・住所2・URL）", function () {
+    var rec = {};
+    for (var k in FULL) rec[k] = FULL[k];
+    rec["FAX"] = ""; rec["住所2"] = ""; rec["URL"] = "";
+    var r = run(B008, rec);
+    assert.strictEqual(r.text,
+        "東京都千代田区丸の内1-2-3\rTe l : 03-1234-5678\r" +
+        "Mobile: 090-1111-2222\rE-mail\t: hanako@example.co.jp");
+});
+
+// ---- abstract001 -----------------------------------------------------
+test("abstract001: 字下げされた住所2の前の空白は残す", function () {
+    var r = run("〒000-0000\r○○○県○○市○○町00-00-0\r　　　　　  ○○○○○000号", FULL);
+    assert.strictEqual(r.text, "〒123-4567\r東京都千代田区丸の内1-2-3\r　　　　　  サンプルビル5F");
+});
+
+test("abstract001: E-mail の値が別の行にあっても置き換わる", function () {
+    var r = run("E-mail\r  : ooooo@oooo.com\rURL : http://www.0123456.jp/", FULL);
+    assert.strictEqual(r.text, "E-mail\r  : hanako@example.co.jp\rURL : https://example.co.jp/");
+});
+
+// ---- 裏面B（英語） ---------------------------------------------------
+var BACK_B = "6-1-1-3 Hirasaku,Yokosuka city,\rKanagawa 238-0032,Japan\r" +
+             "Tel:046-874-4234 Fax:020-4669-2749\rMobile:000-0000-0000\rE-mail:shop@artcode.jp";
+var EN = {
+    "注文番号": "artcode-10000123", "氏名英字": "Hanako Yamada", "肩書英字": "Sales Manager",
+    "会社名英字": "Example Inc.", "英字住所1": "1-2-3 Marunouchi, Chiyoda-ku,",
+    "英字住所2": "Tokyo 100-0005, Japan", "TEL": "+81-3-1234-5678", "FAX": "", "携帯": "",
+    "メール": "hanako@example.co.jp"
+};
+
+test("裏面B: 英字住所と、1行に2つある Tel/Fax（Fax は空欄なので消える）", function () {
+    var r = run(BACK_B, EN);
+    assert.strictEqual(r.text,
+        "1-2-3 Marunouchi, Chiyoda-ku,\rTokyo 100-0005, Japan\rTel:+81-3-1234-5678\rE-mail:hanako@example.co.jp");
+});
+
+test("裏面B: 社名・肩書・氏名（その行だけの文字）", function () {
+    assert.strictEqual(run("artcode", EN).text, "Example Inc.");
+    assert.strictEqual(run("President", EN).text, "Sales Manager");
+    assert.strictEqual(run("Ichiro Suzuki", EN).text, "Hanako Yamada");
+    // shop@artcode.jp の中の artcode は社名として置き換えない
+    assert.strictEqual(run("E-mail:shop@artcode.jp", EN).text, "E-mail:hanako@example.co.jp");
+});
+
+test("文字の間に空白が入っていても見出しを見つける（T e l :）", function () {
+    assert.strictEqual(run("T e l : 0 4 6 - 8 7 4 - 4 2 3 4", EN).text, "T e l : +81-3-1234-5678");
+});
+
+// ---- 裏面A（業務内容）は差し込み先がないので何も変えない -------------
+test("裏面A: 業務内容のテキストは変えない", function () {
+    var a = "業務内容\rWEBデザイン・グラフィックデザイン\r映像編集・３DCG・写真撮影";
+    assert.strictEqual(run(a, FULL).text, a);
+});
+
+// ---- その他 ---------------------------------------------------------
+test("部署は肩書の前に付く", function () {
+    var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });
+    assert.strictEqual(r.text, "営業部　部長");
+});
+
+test("差し込み先がない項目を見つける", function () {
+    var plan = C.planEdits("〒000-0000", FULL);
+    var unused = C.unusedFields(FULL, plan.used);
+    assert.ok(unused.indexOf("氏名") >= 0 && unused.indexOf("郵便番号") < 0);
+});
+
+test("CSV: 見出しの別名・引用符・BOM・空行", function () {
+    var csv = "﻿受注番号,デザイン番号,お名前,電話番号,住所,謎の列\r\n" +
+              "\"111-222\",business008,\"山田 太郎\",03-0000-1111,\"東京都, 港区\",x\r\n\r\n";
+    var res = C.rowsToRecords(C.parseCSV(csv));
+    assert.strictEqual(res.records.length, 1);
+    assert.strictEqual(res.records[0]["注文番号"], "111-222");
+    assert.strictEqual(res.records[0]["氏名"], "山田 太郎");
+    assert.strictEqual(res.records[0]["住所1"], "東京都, 港区");
+    assert.deepStrictEqual(res.unknownHeaders, ["謎の列"]);
+});
+
+test("ファイル名は 注文番号_名前.ai（空白や使えない文字は除く）", function () {
+    assert.strictEqual(C.makeFileName({ "注文番号": "123/45", "氏名": "山田 太郎" }), "12345_山田太郎.ai");
+    assert.strictEqual(C.makeFileName({ "注文番号": "9", "氏名英字": "Taro Yamada" }), "9_TaroYamada.ai");
+});
+
+test("文字コードの判定", function () {
+    var utf8 = Buffer.from("注文番号", "utf8").toString("latin1");
+    var sjis = String.fromCharCode(0x92, 0x8D, 0x95, 0xB6);  // 「注文」の Shift_JIS
+    assert.strictEqual(C.detectEncoding(utf8), "UTF-8");
+    assert.strictEqual(C.detectEncoding(sjis), "Shift_JIS");
+});
+
+test("デザイン番号の表記ゆれ", function () {
+    assert.strictEqual(C.normalizeKey("ＢＵＳＩＮＥＳＳ００８"), "business008");
+    assert.strictEqual(C.normalizeKey(" business008.ai "), "business008");
+});
+
+console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
+process.exit(failures === 0 ? 0 : 1);

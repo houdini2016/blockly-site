@@ -1,0 +1,8 @@
+# このリポジトリは公開(public)です。お客さんの情報やデザインデータは入れないでください。
+*.ai
+*.csv
+!sample/*.csv
+処理結果_*.txt
+templates.json
+report.md
+node_modules/
