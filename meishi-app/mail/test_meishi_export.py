@@ -96,5 +96,25 @@ class CardFromOrderTests(unittest.TestCase):
             self.assertEqual(rows[0]["テンプレート"], "/T/business008.ai")
             self.assertEqual(list(rows[0].keys()), M.CSV_COLUMNS)
 
+class JobScriptTests(unittest.TestCase):
+    def test_embedded_script_is_up_to_date(self):
+        # .jsx を直したのに tools/bundle_jsx.py を実行し忘れていないか
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+        import bundle_jsx
+        self.assertEqual(M.JOB_JSX, bundle_jsx.bundled_jsx(),
+                         "meishi_export.py の埋め込みが古いです。python3 tools/bundle_jsx.py を実行してください")
+
+    def test_install_job_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = M.install_job_script(os.path.join(d, "x", "job.jsx"))
+            with open(path, "rb") as f:
+                data = f.read()
+            self.assertTrue(data.startswith(b"\xef\xbb\xbf"))           # BOM 付き
+            text = data.decode("utf-8-sig")
+            self.assertIn("var MeishiCore", text)
+            self.assertIn("var MeishiAI", text)
+            self.assertNotIn('#include "', text)
+
+
 if __name__ == "__main__":
     unittest.main()

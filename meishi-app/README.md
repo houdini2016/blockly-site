@@ -32,8 +32,11 @@ CS6 から最新版まで動くように作っています。
 
 ### 注文通知アプリへの組み込み
 
-注文通知アプリのフォルダに `mail/meishi_export.py`・`meishi_job.jsx`・`meishi_ai.jsx`・`meishi_core.jsx` を入れ、
-`build_app.sh` でアプリを作り直します（`build_app.sh` に4つをコピーする行を追加済み）。
+注文通知アプリのフォルダに `mail/meishi_export.py` を入れ、`build_app.sh` でアプリを作り直します
+（`build_app.sh` に meishi_export.py をコピーする行を追加済み）。
+Illustrator 用のスクリプト（meishi_core.jsx・meishi_ai.jsx・meishi_job.jsx）は **meishi_export.py の中に埋め込んであり**、
+ボタンを押すたびに `~/Library/Application Support/meishi_job_run.jsx` に書き出して Illustrator に渡します。
+`.jsx` を直したら `python3 tools/bundle_jsx.py` で埋め込みを更新してください（忘れるとテストが失敗します）。
 保存先を変えるときは `meishi_export.py` の `OUTPUT_DIR` を書き換えます。
 
 ### メールから取り出す項目
