@@ -206,33 +206,52 @@ var MeishiAI = (function () {
         var labels = [], values = [], removed = [];
         for (var i = 0; i < doc.textFrames.length; i++) {
             var tf = doc.textFrames[i], t = tf.contents;
-            if (/[\r\n\u0003]/.test(t)) continue;
-            var field = C.labelOnlyField(t);
-            if (field && field !== "URL") labels.push(tf);
-            else if (/^[ \t\u3000]*[:：]/.test(t)) values.push(tf);
+            // 値のテキスト：「  : ooooo@…」のように 1 行でコロンから始まる
+            if (!/[\r\n\u0003]/.test(t) && /^[ \t　]*[:：]/.test(t)) { values.push(tf); continue; }
+            // 見出しの行：テキストの中の「E-mail」だけの行（「Mobile …」と同じテキストの2行目などでもよい）
+            var lines = t.split(/[\r\n\u0003]/), pos = 0;
+            for (var li = 0; li < lines.length; li++) {
+                var field = C.labelOnlyField(lines[li]);
+                if (field && field !== "URL" && C.trim(lines[li]) !== "") {
+                    labels.push({ frame: tf, index: li, count: lines.length, start: pos, text: lines[li] });
+                }
+                pos += lines[li].length + 1;
+            }
         }
         for (var l = 0; l < labels.length; l++) {
-            var lb = labels[l].geometricBounds, h = lb[1] - lb[3];
+            var L = labels[l], fb = L.frame.geometricBounds;
+            // その行のおおよその高さの範囲（複数行のテキストは行の数で等分して考える）
+            var lineH = (fb[1] - fb[3]) / L.count;
+            var top = fb[1] - lineH * L.index, bottom = top - lineH;
             var best = null, bestGap = 0;
             for (var v = 0; v < values.length; v++) {
                 if (!values[v]) continue;
                 var vb = values[v].geometricBounds;
-                var vOverlap = Math.min(lb[1], vb[1]) - Math.max(lb[3], vb[3]);
-                var gap = vb[0] - lb[0];                          // 値は見出しの右側（重なっていてもよい）
-                if (vOverlap < Math.min(h, vb[1] - vb[3]) * 0.5 || gap < 0 || vb[0] > lb[2] + h * 3) continue;
-                if (!best || gap < bestGap) { best = v; bestGap = gap; }
+                var vOverlap = Math.min(top, vb[1]) - Math.max(bottom, vb[3]);
+                var gap = vb[0] - fb[0];                         // 値は見出しの右側（重なっていてもよい）
+                if (vOverlap < Math.min(lineH, vb[1] - vb[3]) * 0.5 || gap < 0 || vb[0] > fb[2] + lineH * 3) continue;
+                if (best === null || gap < bestGap) { best = v; bestGap = gap; }
             }
             if (best === null) continue;
             var valueFrame = values[best];
-            var relock = unlockFor(labels[l]);
+            var relock = unlockFor(L.frame);
             var relock2 = unlockFor(valueFrame);
-            labels[l].contents = labels[l].contents.replace(/[ \t\u3000:：]+$/, "") + ":" +
-                                 valueFrame.contents.replace(/^[ \t\u3000]*[:：]/, "");
+            // 「E-mail」の行の最後に「:値」をつなげる（最後の文字の書式を引き継ぐ）
+            var word = L.text.replace(/[ \t　:：]+$/, "");
+            var wordEnd = L.start + L.text.search(/[ \t　:：]*$/);
+            var lineEnd = L.start + L.text.length;
+            var addText = ":" + valueFrame.contents.replace(/^[ \t　]*[:：]/, "");
+            var before = L.frame.contents;
+            var expected = before.substring(0, wordEnd) + addText + before.substring(lineEnd);
+            try {
+                replaceRange(L.frame, wordEnd - 1, lineEnd, word.charAt(word.length - 1) + addText);
+            } catch (e) { /* 下で中身ごと入れ直す */ }
+            if (L.frame.contents !== expected) L.frame.contents = expected;
             removed.push(valueFrame);
             valueFrame.remove();
             values[best] = null;
             relock();
-            try { relock2(); } catch (e) { /* 消したテキストのロックは戻さない */ }
+            try { relock2(); } catch (e2) { /* 消したテキストのロックは戻さない */ }
         }
         return removed;
     }

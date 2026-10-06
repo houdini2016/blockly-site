@@ -331,5 +331,22 @@ test("部署名: 肩書の上に入れられない（エラー）ときは次の
     assert.ok(w.join("\n").indexOf("中心から5cm上") >= 0, w.join("\n"));
 });
 
+test("コロン: 「Mobile」と「E-mail」が2行のテキストで、アドレスが別テキストに重なっているデザイン", function () {
+    // スクリーンショットのテンプレート：2行のテキスト（Mobile / E-mail）＋ 2行目に重ねたアドレスのテキスト
+    var doc = makeDoc([["Mobile:000-0000-0000\rE-mail", [47, -20, 690, -130]],
+                       ["  : ooooo@oooo.com", [150, -80, 930, -130]]]);
+    var block = doc.textFrames[0], value = doc.textFrames[1];
+    AI.editDocument(doc, { "携帯": "090-9085-8613", "メール": "xxx3r.m.k0211@gmail.com" }, []);
+    assert.strictEqual(block.contents, "Mobile：090-9085-8613\rE-mail：xxx3r.m.k0211@gmail.com");
+    assert.ok(value.removed);
+});
+
+test("コロン: 1行目の見出しに、別テキストの値を合わせない（高さが違う）", function () {
+    var doc = makeDoc([["E-mail\rMobile:000-0000-0000", [47, -20, 690, -130]],
+                       ["  : ooooo@oooo.com", [150, -80, 930, -130]]]);
+    AI.editDocument(doc, { "携帯": "090-1", "メール": "a@b.jp" }, []);
+    assert.strictEqual(doc.textFrames[1].contents, "  : a@b.jp");                // 2行目の高さなので1行目の E-mail とはつながない
+});
+
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
 process.exit(failures === 0 ? 0 : 1);
