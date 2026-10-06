@@ -25,7 +25,7 @@ data.forEach(function (t) {
     if (t.error) { out.push("- 読めませんでした: " + t.error, ""); problems++; return; }
     var fields = [];
     t.lines.forEach(function (l) {
-        var plan = C.planEdits(l.text, dummy);
+        var plan = C.planEdits(l.text, dummy, { keepLeftover: true });
         var after = C.applyEditsToString(l.text, plan.edits);
         plan.used.forEach(function (u) { if (fields.indexOf(u) < 0) fields.push(u); });
         var mark = plan.edits.length === 0 ? "\u3000" : "✓";

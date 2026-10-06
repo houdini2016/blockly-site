@@ -169,6 +169,7 @@ var MeishiAI = (function () {
         var values = C.prepareValues(rec);
         for (var f = 0; f < frames.length; f++) {
             var tf = frames[f];
+            var frameBefore = tf.contents;
             var relock = unlockFor(tf);
             try {
                 // テキストに項目名の名前（例:「氏名」）が付いていれば、中身を丸ごと置き換える
@@ -181,23 +182,33 @@ var MeishiAI = (function () {
                     for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);
                     if (plan.edits.length > 0) {
                         var expected = C.applyEditsToString(before, plan.edits);
-                        for (var e = plan.edits.length - 1; e >= 0; e--) {
-                            replaceRange(tf, plan.edits[e].start, plan.edits[e].end, plan.edits[e].text);
+                        try {
+                            // 後ろから1か所ずつ置き換える（文字ごとの書式を残すため）
+                            for (var e = plan.edits.length - 1; e >= 0; e--) {
+                                replaceRange(tf, plan.edits[e].start, plan.edits[e].end, plan.edits[e].text);
+                            }
+                        } catch (rangeErr) {
+                            // 改行をまたぐ削除などで Illustrator がエラーを出したときは、下で中身ごと入れ直す
                         }
                         if (tf.contents !== expected) {
-                            // 念のための安全策：うまく置き換わらなかったら中身ごと入れ直す
+                            // 安全策：うまく置き換わらなかったら中身ごと入れ直す
                             tf.contents = expected;
                             warnings.push("文字の書式が一部くずれたかもしれません: 「" + oneLine(expected) + "」");
                         }
                     }
-                }
-                if (C.hasLeftover(tf.contents)) {
-                    warnings.push("仮の文字が残っています: 「" + oneLine(tf.contents) + "」");
+                    for (var r = 0; r < plan.leftoverRemoved.length; r++) {
+                        warnings.push("見つからない仮の文字が残っていたので行を消しました: 「" + oneLine(plan.leftoverRemoved[r]) + "」");
+                    }
                 }
             } catch (err) {
                 warnings.push("テキストを書き換えられませんでした（" + err.message + "）: 「" + oneLine(tf.contents) + "」");
             }
-            relock();
+            // 未入力で中身が空になったテキストは、テキストごと消す
+            var emptied = false;
+            try {
+                if (frameBefore !== "" && C.trim(tf.contents) === "") { tf.remove(); emptied = true; }
+            } catch (removeErr) { /* 消せなくても空なので見た目は同じ */ }
+            if (!emptied) relock();
         }
         var unused = C.unusedFields(rec, used);
         if (unused.length > 0) {

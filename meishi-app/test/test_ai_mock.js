@@ -24,6 +24,8 @@ TextRange.prototype.remove = function () { this.contents = ""; };
 
 function TextFrame(contents, bounds, parent) {
     var self = this;
+    this.removed = false;
+    this.remove = function () { self.removed = true; };
     this.typename = "TextFrame"; this.contents = contents; this.name = "";
     this.locked = false; this.geometricBounds = bounds || [0, 0, 10, -10]; this.parent = parent;
     this.characters = new Proxy({}, { get: function (_, k) { return new TextRange(self, Number(k)); } });
@@ -100,6 +102,47 @@ test("ロックされたテキストも書き換えて、ロックを戻す", fu
     AI.editDocument(doc, REC, []);
     assert.strictEqual(doc.textFrames[2].contents, "〒100-0005");
     assert.ok(doc.textFrames[2].locked && doc.layer.locked);
+});
+
+// 今回の不具合の再現：住所〜E-mail が1つのテキストで、未入力の行（Fax など）がある
+var ADDRESS_BLOCK = "○○○県○○市○○町00-00-0\r\u3000\u3000\u3000\u3000\u3000  ○○○○○000号\r" +
+    "Tel :0 0 0 - 0 0 0 - 0 0 0 0\rFax :0 0 0 - 0 0 0 - 0 0 0 0\rMobile: 0 0 0 - 0 0 0 0 - 0 0 0 0\r" +
+    "E-mail : ooooo@oooo.com";
+var HASHIMOTO = { "会社名": "インテリア\u3000ハシモト", "氏名": "五関 北斗", "郵便番号": "272-0811",
+                  "住所1": "千葉県市川市北方町1-2-3", "TEL": "047-123-4567" };
+
+test("住所〜E-mail のテキスト: 未入力の Fax・Mobile・E-mail・住所2 の行を消す", function () {
+    var doc = makeDoc([["〒000-0000", [0, 0, 10, -10]], [ADDRESS_BLOCK, [0, 0, 10, -10]]]);
+    AI.editDocument(doc, HASHIMOTO, []);
+    assert.strictEqual(doc.textFrames[0].contents, "〒272-0811");
+    assert.strictEqual(doc.textFrames[1].contents, "千葉県市川市北方町1-2-3\rTel :047-123-4567");
+});
+
+test("未入力で空になったテキスト（肩書の枠など）はテキストごと消す", function () {
+    var doc = makeDoc([["店\u3000長", [0, 0, 10, -10]], ["鈴\u3000木\u3000花\u3000子", [0, 0, 10, -10]]]);
+    AI.editDocument(doc, HASHIMOTO, []);
+    assert.ok(doc.textFrames[0].removed);
+    assert.ok(!doc.textFrames[1].removed);
+    assert.strictEqual(doc.textFrames[1].contents, "五\u3000関\u3000北\u3000斗");
+});
+
+test("Illustrator が改行をまたぐ削除でエラーを出しても、中身ごと入れ直して置き換える", function () {
+    var doc = makeDoc([[ADDRESS_BLOCK, [0, 0, 10, -10]]]);
+    var tf = doc.textFrames[0];
+    var real = tf.characters;
+    tf.characters = new Proxy({}, { get: function (_, k) {
+        var r = real[k];
+        var orig = r.remove;
+        r.remove = function () {
+            if (/\r/.test(this.contents)) throw new Error("an Illustrator error occurred");
+            orig.call(this);
+        };
+        return r;
+    } });
+    var w = [];
+    AI.editDocument(doc, HASHIMOTO, w);
+    assert.strictEqual(tf.contents, "千葉県市川市北方町1-2-3\rTel :047-123-4567");
+    assert.ok(w.join("\n").indexOf("書式が一部くずれた") >= 0);
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");

@@ -23,7 +23,7 @@ data.forEach(function (t) {
     if (t.error) { leftovers.push(base(t.file) + ": 読めませんでした"); return; }
     var used = [], left = [];
     t.lines.forEach(function (l) {
-        var p = C.planEdits(l.text, dummy);
+        var p = C.planEdits(l.text, dummy, { keepLeftover: true });
         p.used.forEach(function (u) { if (used.indexOf(u) < 0) used.push(u); });
         if (C.hasLeftover(C.applyEditsToString(l.text, p.edits))) left.push(l.text.replace(/\s+/g, " "));
     });

@@ -227,12 +227,16 @@ var MeishiCore = (function () {
     // 文字列 contents（1つのテキストの中身）について、どこを何に置き換えるかを返す。
     //   edits:  [{ start, end, text, field }]   （start〜end を text に置き換える）
     //   used:   この中で見つかった項目名の一覧
-    function planEdits(contents, rec) {
+    //   leftoverRemoved: 認識できない仮の文字（○○○・000- など）が残るため消した行
+    //   opts.keepLeftover が true のときは、その行を消さずに leftover に入れる（検査ツール用）
+    function planEdits(contents, rec, opts) {
+        opts = opts || {};
         var values = prepareValues(rec);
         values.__logo = hasLogoData(rec);
-        var edits = [], used = [];
+        var edits = [], used = [], leftoverRemoved = [], leftover = [];
 
-        // 行ごとに処理する
+        // 行ごとに、置き換えるところと「行ごと消すか」を決める
+        var lines = [];
         var lineStart = 0;
         while (lineStart <= contents.length) {
             var lineEnd = lineStart;
@@ -240,27 +244,47 @@ var MeishiCore = (function () {
             var line = contents.substring(lineStart, lineEnd);
             var lineEdits = planLine(line, values, used);
 
-            // その行で消すものばかりで、何も残らない → 行ごと消す（改行も一緒に）
-            if (lineEdits.length > 0 && trim(applyEditsToString(line, lineEdits)) === "") {
-                var delStart = lineStart, delEnd = lineEnd;
-                if (lineEnd < contents.length) delEnd = lineEnd + 1;          // 後ろの改行
-                else if (lineStart > 0) delStart = lineStart - 1;            // 最後の行なら前の改行
-                edits.push({ start: delStart, end: delEnd, text: "", field: "(行削除)" });
-            } else {
-                for (var i = 0; i < lineEdits.length; i++) {
-                    edits.push({
-                        start: lineEdits[i].start + lineStart,
-                        end: lineEdits[i].end + lineStart,
-                        text: lineEdits[i].text,
-                        field: lineEdits[i].field
-                    });
-                }
+            // テンプレートの文字のうち、置き換えなかった部分に仮の文字が残っているか
+            // （お客さんの入力した値は数えない。「03-1000-2000」の「000-」などを誤って消さないため）
+            var blanks = [];
+            for (var b = 0; b < lineEdits.length; b++) {
+                blanks.push({ start: lineEdits[b].start, end: lineEdits[b].end, text: "" });
             }
+            var stillPlaceholder = hasLeftover(applyEditsToString(line, blanks));
+            if (stillPlaceholder) {
+                if (opts.keepLeftover) leftover.push(line);
+                else leftoverRemoved.push(line);
+            }
+            // 消すものばかりで何も残らない、または未入力の仮の文字が残る → 行ごと消す
+            var remove = (stillPlaceholder && !opts.keepLeftover) ||
+                         (lineEdits.length > 0 && trim(applyEditsToString(line, lineEdits)) === "");
+            lines.push({ start: lineStart, end: lineEnd, edits: lineEdits, remove: remove });
             if (lineEnd >= contents.length) break;
             lineStart = lineEnd + 1;
         }
+
+        for (var i = 0; i < lines.length; i++) {
+            var L = lines[i];
+            if (!L.remove) {
+                for (var k = 0; k < L.edits.length; k++) {
+                    edits.push({ start: L.edits[k].start + L.start, end: L.edits[k].end + L.start,
+                                 text: L.edits[k].text, field: L.edits[k].field });
+                }
+                continue;
+            }
+            // 後ろに残る行があれば「この行＋後ろの改行」を消す
+            var keptAfter = false;
+            for (var j = i + 1; j < lines.length; j++) if (!lines[j].remove) { keptAfter = true; break; }
+            if (keptAfter) {
+                edits.push({ start: L.start, end: L.end + 1, text: "", field: "(行削除)" });
+            } else {
+                // 最後まで消す行が続く → 前の改行からテキストの最後までをまとめて消す
+                edits.push({ start: L.start > 0 ? L.start - 1 : 0, end: contents.length, text: "", field: "(行削除)" });
+                break;
+            }
+        }
         edits.sort(function (a, b) { return a.start - b.start; });
-        return { edits: edits, used: used };
+        return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover };
     }
 
     // コロンのない見出しのときは、後ろが本当に電話番号などかを確かめる（「Web デザイン」などを避ける）

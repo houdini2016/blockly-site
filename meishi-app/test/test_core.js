@@ -187,6 +187,18 @@ test("指示ファイル: パーセント表記を元に戻す・空行で次の
     assert.strictEqual(C.parseJob("注文番号,氏名\n1,a"), null);   // 古い形は読まない
 });
 
+// ---- 未入力・見つからない仮の文字の行は消す ---------------------------
+test("見つからない仮の文字が残る行は消す（お客さんの値の 000- は数えない）", function () {
+    var plan = C.planEdits("営業時間\r○○○○ 000-000\rTel : 000-000-0000", { "TEL": "03-1000-2000" });
+    assert.strictEqual(C.applyEditsToString("営業時間\r○○○○ 000-000\rTel : 000-000-0000", plan.edits),
+                       "営業時間\rTel : 03-1000-2000");
+    assert.deepStrictEqual(plan.leftoverRemoved, ["○○○○ 000-000"]);
+    // 検査ツール用：消さずに知らせる
+    var keep = C.planEdits("○○○○ 000-000", {}, { keepLeftover: true });
+    assert.strictEqual(keep.edits.length, 0);
+    assert.deepStrictEqual(keep.leftover, ["○○○○ 000-000"]);
+});
+
 // ---- その他 ---------------------------------------------------------
 test("部署は肩書の前に付く", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });
