@@ -232,10 +232,41 @@ test("備考: お店の案内文だけなら入れない、ほかに書いてあ
     assert.ok(C.remarkHasContent("【不明点など確認時のご連絡先 電話番号やアドレス】090-1111-2222"));
 });
 
+// ---- 今回の追加 -----------------------------------------------------
+test("備考: 文字の種類がちがっても案内文だけなら入れない", function () {
+    var bp = "【不明点など確認時のご連絡先 電話番号やアドレス】\r\n\r\n★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\r\n\r\n" +
+             "---------------------------------------------------------------------";
+    assert.ok(!C.remarkHasContent(bp));
+    assert.ok(!C.remarkHasContent(bp.replace(/-/g, "\u2014")));                 // 別のダッシュ
+    assert.ok(!C.remarkHasContent(bp.replace(" ", "\u00A0").replace("下さい", "ください") + "\u200B"));
+    assert.ok(!C.remarkHasContent(bp.replace("★", "☆").replace("、", "，")));
+    assert.ok(C.remarkHasContent(bp + "\n裏面なしでお願いします"));
+    assert.ok(C.remarkHasContent(bp.replace("】", "】090-1111-2222")));
+});
+
+test("会社名の仮の文字（株式会社／〇〇〇〇商事）も LOGO と同じ扱い", function () {
+    var t = "株式会社\r\u3000〇〇〇〇商事";
+    assert.strictEqual(run(t, { "会社名": "株式会社サンプル", "ロゴデータ": "無し" }).text, "株式会社\r\u3000サンプル");
+    assert.strictEqual(run(t, { "会社名": "インテリア ハシモト", "ロゴデータ": "無し" }).text, "\u3000インテリア ハシモト");
+    var keep = C.planEdits(t, { "会社名": "株式会社サンプル", "ロゴデータ": "有り" });
+    assert.strictEqual(keep.edits.length, 0);                 // ロゴ有り → そのまま（〇があっても消さない）
+    assert.deepStrictEqual(keep.leftoverRemoved, []);
+    assert.ok(C.isLogoText(t));
+    assert.ok(C.isLogoText("株式会社〇〇商事"));
+    assert.ok(!C.isLogoText("株式会社"));
+});
+
+test("項目の位置（ふりがな・部署名を置くため）", function () {
+    var p = C.planEdits("代表取締役鈴\u3000木\u3000太\u3000郎", { "肩書": "", "氏名": "山田 太郎" });
+    assert.strictEqual(p.fieldPos["肩書"], 0);
+    assert.strictEqual(p.fieldPos["氏名"], 5);
+    assert.strictEqual(C.planEdits("店長", { "肩書": "" }).fieldPos["肩書"], 0);   // 行ごと消しても位置は分かる
+});
+
 // ---- その他 ---------------------------------------------------------
-test("部署は肩書の前に付く", function () {
+test("部署は肩書に混ぜない（別のテキストとして肩書の上に入れる）", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });
-    assert.strictEqual(r.text, "営業部\u3000部長");
+    assert.strictEqual(r.text, "部長");
 });
 
 test("差し込み先がない項目を見つける", function () {

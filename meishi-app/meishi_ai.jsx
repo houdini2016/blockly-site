@@ -192,6 +192,51 @@ var MeishiAI = (function () {
         warnings.push("備考を名刺の下（中心から8cm下）に入れました");
     }
 
+    // ----- ふりがな・部署名（新しいテキストとして足す） -----
+
+    var FURIGANA_SIZE = 5;     // ふりがな：氏名の上に 5pt
+    var DEPARTMENT_SIZE = 8;   // 部署名：会社名と肩書の間（肩書の上）に 8pt
+    var LABEL_GAP = 1;         // 元のテキストとのすき間（pt）
+
+    // 書き換える前に、そのテキストの位置・フォント・そろえ方・縦書きかを覚えておく
+    function captureInfo(tf, index) {
+        var info = { frame: tf, bounds: tf.geometricBounds, font: null, align: "left", vertical: false };
+        try { info.font = tf.characters[index].characterAttributes.textFont; } catch (e1) { /* フォントは標準のまま */ }
+        try { info.vertical = tf.orientation === TextOrientation.VERTICAL; } catch (e2) { /* 横書き */ }
+        try {
+            var j = tf.characters[index].paragraphAttributes.justification;
+            if (j === Justification.CENTER) info.align = "center";
+            else if (j === Justification.RIGHT) info.align = "right";
+        } catch (e3) { /* 左そろえ */ }
+        return info;
+    }
+
+    // 元のテキストがまだあればその今の位置、消えていれば書き換える前の位置
+    function currentBounds(info) {
+        try { return info.frame.geometricBounds; } catch (e) { return info.bounds; }
+    }
+
+    // info のテキストの上（縦書きなら右）に、小さな文字のテキストを足す。
+    // inPlace が true なら、上ではなく info のテキストがあった場所に入れる（肩書が空で消えたとき）
+    function addLabelAbove(doc, info, text, size, align, inPlace) {
+        var tf = doc.textFrames.add();
+        tf.contents = text;
+        var attrs = tf.textRange.characterAttributes;
+        attrs.size = size;
+        if (info.font) attrs.textFont = info.font;
+        if (info.vertical) tf.orientation = TextOrientation.VERTICAL;
+        var b = currentBounds(info);                  // [左, 上, 右, 下]（上の方が数字が大きい）
+        var w = tf.width, h = tf.height;
+        if (info.vertical) {
+            tf.position = [inPlace ? b[0] : b[2] + LABEL_GAP, b[1]];     // 縦書き：右どなり、上をそろえる
+        } else {
+            var left = align === "center" ? (b[0] + b[2]) / 2 - w / 2 : align === "right" ? b[2] - w : b[0];
+            tf.position = [left, inPlace ? b[1] : b[1] + LABEL_GAP + h];
+        }
+        try { tf.move(info.frame, ElementPlacement.PLACEBEFORE); } catch (e) { /* 元のテキストが消えていたらそのまま */ }
+        return tf;
+    }
+
     // ----- 書類全体の書き換え -----
 
     // 書類の文字を注文内容に書き換える。確認してほしいことを warnings に足す。
@@ -203,6 +248,8 @@ var MeishiAI = (function () {
         for (var i = 0; i < doc.textFrames.length; i++) frames.push(doc.textFrames[i]);
 
         var values = C.prepareValues(rec);
+        var nameInfo = null, titleInfo = null;   // ふりがな・部署名を置く場所の目印
+        var removedFrames = [];                  // 未入力で消したテキスト
         for (var f = 0; f < frames.length; f++) {
             var tf = frames[f];
             var frameBefore = tf.contents;
@@ -210,12 +257,16 @@ var MeishiAI = (function () {
             try {
                 // テキストに項目名の名前（例:「氏名」）が付いていれば、中身を丸ごと置き換える
                 if (tf.name && C.FIELD_ALIASES.hasOwnProperty(tf.name)) {
+                    if (tf.name === "氏名" && !nameInfo) nameInfo = captureInfo(tf, 0);
+                    if (tf.name === "肩書" && !titleInfo) titleInfo = captureInfo(tf, 0);
                     if (tf.contents !== "") replaceRange(tf, 0, tf.contents.length, values[tf.name] || "");
                     used.push(tf.name);
                 } else {
                     var before = tf.contents;
                     var plan = C.planEdits(before, rec);
                     for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);
+                    if (!nameInfo && plan.fieldPos.hasOwnProperty("氏名")) nameInfo = captureInfo(tf, plan.fieldPos["氏名"]);
+                    if (!titleInfo && plan.fieldPos.hasOwnProperty("肩書")) titleInfo = captureInfo(tf, plan.fieldPos["肩書"]);
                     if (plan.edits.length > 0) {
                         var expected = C.applyEditsToString(before, plan.edits);
                         try {
@@ -243,10 +294,34 @@ var MeishiAI = (function () {
             // 未入力で中身が空になったテキストは、テキストごと消す
             var emptied = false;
             try {
-                if (frameBefore !== "" && C.trim(tf.contents) === "") { tf.remove(); emptied = true; }
+                if (frameBefore !== "" && C.trim(tf.contents) === "") { removedFrames.push(tf); tf.remove(); emptied = true; }
             } catch (removeErr) { /* 消せなくても空なので見た目は同じ */ }
             if (!emptied) relock();
         }
+        // ふりがな：氏名の上に、氏名と同じフォントで 5pt（中央そろえ）
+        if (rec["ふりがな"]) {
+            if (!nameInfo) warnings.push("氏名の場所が見つからないため、ふりがなを入れていません: " + rec["ふりがな"]);
+            else {
+                try { addLabelAbove(doc, nameInfo, rec["ふりがな"], FURIGANA_SIZE, "center"); used.push("ふりがな"); }
+                catch (furiErr) { warnings.push("ふりがなを入れられませんでした（" + furiErr.message + "）"); }
+            }
+        }
+        // 部署名：会社名と肩書の間（肩書の上）に、肩書と同じフォントで 8pt。
+        // 肩書が空で消えたときは肩書があった場所に、肩書の場所がないデザインは氏名の上に入れる
+        if (rec["部署"]) {
+            var deptInfo = titleInfo || nameInfo;
+            var titleGone = false;
+            for (var rf = 0; titleInfo && rf < removedFrames.length; rf++) if (removedFrames[rf] === titleInfo.frame) titleGone = true;
+            if (!deptInfo) warnings.push("肩書・氏名の場所が見つからないため、部署名を入れていません: " + rec["部署"]);
+            else {
+                try {
+                    addLabelAbove(doc, deptInfo, rec["部署"], DEPARTMENT_SIZE, deptInfo.align, titleGone);
+                    warnings.push(titleGone ? "部署名を肩書の場所に入れました（位置を確認してください）"
+                                            : "部署名を肩書の上に入れました（位置を確認してください）");
+                } catch (deptErr) { warnings.push("部署名を入れられませんでした（" + deptErr.message + "）"); }
+            }
+        }
+
         var unused = C.unusedFields(rec, used);
         if (unused.length > 0) {
             warnings.push("テンプレートに差し込み先がない項目: " + unused.join("、"));
@@ -267,6 +342,7 @@ var MeishiAI = (function () {
         isNextToLogo: isNextToLogo,
         pickMarks: pickMarks,
         addRemarks: addRemarks,
+        addLabelAbove: addLabelAbove,
         REMARK_OFFSET: REMARK_OFFSET,
         editDocument: editDocument
     };

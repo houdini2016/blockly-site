@@ -9,6 +9,8 @@ var AI = eval(fs.readFileSync(path.join(__dirname, "..", "meishi_ai.jsx"), "utf8
 // ---- Illustrator の TextFrame / TextRange をまねた最小限のもの ----
 function TextRange(frame, start) {
     this.frame = frame; this.start = start; this._len = 1;
+    this.characterAttributes = { textFont: frame.fontAt ? frame.fontAt(start) : "Font" };
+    this.paragraphAttributes = { justification: frame.justification || "left" };
 }
 Object.defineProperty(TextRange.prototype, "length", {
     get: function () { return this._len; }, set: function (v) { this._len = v; }
@@ -38,10 +40,21 @@ function Item(type, bounds, doc) {
         doc.removed.push(this);
     };
 }
+global.TextOrientation = { VERTICAL: "vertical", HORIZONTAL: "horizontal" };
+global.Justification = { CENTER: "center", RIGHT: "right", LEFT: "left" };
+global.ElementPlacement = { PLACEBEFORE: "before" };
+
 function makeDoc(texts) {
-    var doc = { typename: "Document", rasterItems: [], placedItems: [], removed: [] };
+    var doc = { typename: "Document", rasterItems: [], placedItems: [], removed: [], added: [] };
     doc.layer = { typename: "Layer", locked: false, parent: doc };
     doc.textFrames = texts.map(function (t) { return new TextFrame(t[0], t[1], doc.layer); });
+    doc.textFrames.add = function () {
+        var t = { contents: "", width: 40, height: 6, position: null, orientation: "horizontal", movedBefore: null,
+                  textRange: { characterAttributes: {} } };
+        t.move = function (target) { t.movedBefore = target; };
+        doc.added.push(t);
+        return t;
+    };
     return doc;
 }
 
@@ -159,7 +172,6 @@ test("備考: 中心から8cm下に 7pt・MSゴシック・中央揃えで入れ
         return layer;
     } };
     global.app = { textFonts: { getByName: function (n) { if (n === "MS-Gothic") return "MSG"; throw new Error("no"); } } };
-    global.Justification = { CENTER: "center" };
     var w = [];
     AI.editDocument(doc, { "氏名": "山田 太郎", "備考": "裏面は無しで\nお願いします" }, w);
     assert.strictEqual(added.length, 1);
@@ -183,6 +195,63 @@ test("備考: お店の案内文だけなら何も入れない", function () {
         "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n\n------------" }, w);
     assert.strictEqual(added, 0);
     assert.ok(w.join("\n").indexOf("備考") < 0);
+});
+
+test("ふりがな: 氏名の上に、氏名と同じフォントで 5pt・中央そろえ", function () {
+    var doc = makeDoc([["代表取締役鈴\u3000木\u3000太\u3000郎", [229, -400, 330, -410]]]);
+    var nameFrame = doc.textFrames[0];
+    nameFrame.fontAt = function (i) { return i >= 5 ? "RyuminPr5-Regular(氏名)" : "Ryumin(肩書)"; };
+    var w = [];
+    AI.editDocument(doc, { "肩書": "部長", "氏名": "山田 太郎", "ふりがな": "やまだ たろう" }, w);
+    var f = doc.added[0];
+    assert.strictEqual(f.contents, "やまだ たろう");
+    assert.strictEqual(f.textRange.characterAttributes.size, 5);
+    assert.strictEqual(f.textRange.characterAttributes.textFont, "RyuminPr5-Regular(氏名)");
+    assert.deepStrictEqual(f.position, [(229 + 330) / 2 - 20, -400 + 1 + 6]);   // 中央・1pt 上
+    assert.strictEqual(f.movedBefore, nameFrame);
+    assert.ok(w.join("\n").indexOf("差し込み先がない") < 0, w.join("\n"));
+});
+
+test("部署名: 肩書の上に、肩書と同じフォントで 8pt（肩書のそろえ方に合わせる）", function () {
+    var doc = makeDoc([["店\u3000長", [264, -381, 290, -389]], ["鈴\u3000木\u3000花\u3000子", [264, -388, 348, -405]]]);
+    doc.textFrames[0].fontAt = function () { return "肩書のフォント"; };
+    doc.textFrames[0].justification = "right";
+    var w = [];
+    AI.editDocument(doc, { "部署": "営業部", "肩書": "部長", "氏名": "山田 太郎" }, w);
+    var d = doc.added[0];
+    assert.strictEqual(d.contents, "営業部");
+    assert.strictEqual(d.textRange.characterAttributes.size, 8);
+    assert.strictEqual(d.textRange.characterAttributes.textFont, "肩書のフォント");
+    assert.deepStrictEqual(d.position, [290 - 40, -381 + 1 + 6]);   // 右そろえ・肩書の 1pt 上
+    assert.strictEqual(doc.textFrames[0].contents, "部\u3000長");   // 肩書には部署を混ぜない
+});
+
+test("部署名: 肩書が空なら、肩書があった場所に肩書のフォントで入れる", function () {
+    var doc = makeDoc([["店\u3000長", [264, -381, 290, -389]], ["鈴\u3000木\u3000花\u3000子", [264, -388, 348, -405]]]);
+    doc.textFrames[0].fontAt = function () { return "肩書のフォント"; };
+    var w = [];
+    AI.editDocument(doc, { "部署": "営業部", "氏名": "山田 太郎" }, w);
+    assert.ok(doc.textFrames[0].removed);                     // 空になった肩書は消える
+    assert.strictEqual(doc.added[0].textRange.characterAttributes.textFont, "肩書のフォント");
+    assert.deepStrictEqual(doc.added[0].position, [264, -381]);
+    assert.ok(w.join("\n").indexOf("肩書の場所に") >= 0);
+});
+
+test("部署名: 肩書の場所がないデザインは氏名の上", function () {
+    var doc = makeDoc([["鈴\u3000木\u3000花\u3000子", [264, -388, 348, -405]]]);
+    doc.textFrames[0].fontAt = function () { return "氏名のフォント"; };
+    AI.editDocument(doc, { "部署": "営業部", "氏名": "山田 太郎" }, []);
+    assert.strictEqual(doc.added[0].textRange.characterAttributes.textFont, "氏名のフォント");
+    assert.deepStrictEqual(doc.added[0].position, [264, -388 + 1 + 6]);
+});
+
+test("縦書きの氏名: ふりがなは右どなりに縦書きで", function () {
+    var doc = makeDoc([["鈴木\r\u3000花子", [300, -400, 310, -480]]]);
+    doc.textFrames[0].orientation = "vertical";
+    AI.editDocument(doc, { "氏名": "山田 太郎", "ふりがな": "やまだ たろう" }, []);
+    assert.strictEqual(doc.textFrames[0].contents, "山田\r\u3000太郎");
+    assert.strictEqual(doc.added[0].orientation, "vertical");
+    assert.deepStrictEqual(doc.added[0].position, [311, -400]);
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");

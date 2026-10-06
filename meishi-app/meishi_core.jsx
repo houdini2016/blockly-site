@@ -69,11 +69,14 @@ var MeishiCore = (function () {
         // 文字のロゴ（英語面では英字の会社名があればそちらを使う）
         { field: "会社名",     wholeLine: true, logo: true, altField: "会社名英字",
           texts: ["artcode", "アートコード"] },
-        { field: "会社名",     wholeLine: true,
-          texts: ["株式会社●●商事", "株式会社海山商事", "○○商事○○○企画課"] },
+        // 会社名の仮の文字も LOGO と同じ扱い（ロゴデータ有りならそのまま・無しなら会社名・横のマークを消す）
+        { field: "会社名",     wholeLine: true, logo: true,
+          texts: ["株式会社●●商事", "株式会社海山商事", "○○商事○○○企画課",
+                  "株式会社○○商事", "株式会社○○○商事", "株式会社○○○○商事", "株式会社○○○○○商事"] },
         // 「株式会社」と「○○商事」が別の行になっているデザイン
-        { field: "会社名_前",  wholeLine: true, usedAs: "会社名", texts: ["株式会社"] },
-        { field: "会社名_後",  wholeLine: true, usedAs: "会社名", texts: ["○○商事", "海山商事"] },
+        { field: "会社名_前",  wholeLine: true, usedAs: "会社名", logo: true, texts: ["株式会社"] },
+        { field: "会社名_後",  wholeLine: true, usedAs: "会社名", logo: true,
+          texts: ["○○商事", "○○○商事", "○○○○商事", "○○○○○商事", "●●商事", "海山商事"] },
         { field: "肩書",       texts: ["代表取締役"], spaced: true },
         { field: "肩書",       wholeLine: true, spaced: true,
           texts: ["店長", "オーナー", "ショップオーナー", "取締役社長", "代表", "営業事務", "営業課長", "課長",
@@ -193,11 +196,10 @@ var MeishiCore = (function () {
         return { records: records, unknownHeaders: unknown };
     }
 
-    // 部署は肩書の前に付ける（例: 営業部　部長）
+    // 部署は別のテキストとして肩書の上に入れる（meishi_ai.jsx）
     function prepareValues(rec) {
         var v = {};
         for (var k in rec) if (rec.hasOwnProperty(k)) v[k] = rec[k];
-        if (v["部署"]) v["肩書"] = v["肩書"] ? v["部署"] + "\u3000" + v["肩書"] : v["部署"];
         var company = v["会社名"] || "";
         var m = company.match(COMPANY_PREFIX);
         v["会社名_前"] = m ? m[1] : "";
@@ -207,9 +209,10 @@ var MeishiCore = (function () {
 
     // その文字が「LOGO」などロゴの仮の文字か（LOGO 横のマークを探すときに使う）
     function isLogoText(text) {
-        var t = String(text).replace(/[ \t\u3000\r\n]/g, "");
+        var t = String(text).replace(/[ \t\u3000\r\n\u0003]/g, "").replace(/〇/g, "○");
+        if (/^(株式会社)?([○●]+|海山)商事$/.test(t)) return true;   // 「株式会社」「○○○○商事」が2行のデザインも
         for (var k = 0; k < PLACEHOLDERS.length; k++) {
-            if (!PLACEHOLDERS[k].logo) continue;
+            if (!PLACEHOLDERS[k].logo || PLACEHOLDERS[k].field === "会社名_前") continue;   // 「株式会社」だけでは判断しない
             for (var i = 0; i < PLACEHOLDERS[k].texts.length; i++) {
                 if (PLACEHOLDERS[k].texts[i] === t) return true;
             }
@@ -267,10 +270,23 @@ var MeishiCore = (function () {
             lineStart = lineEnd + 1;
         }
 
+        // それぞれの項目が元のテキストの何文字目にあったか（ふりがな・部署名を置く位置を決めるため）
+        var fieldPos = {};
+        for (var e0 = 0; e0 < edits.length; e0++) {
+            if (!fieldPos.hasOwnProperty(edits[e0].field)) fieldPos[edits[e0].field] = edits[e0].start;
+        }
+        for (var i0 = 0; i0 < lines.length; i0++) {
+            for (var k0 = 0; k0 < lines[i0].edits.length; k0++) {
+                var f0 = lines[i0].edits[k0].field;
+                if (!fieldPos.hasOwnProperty(f0)) fieldPos[f0] = lines[i0].edits[k0].start + lines[i0].start;
+            }
+        }
+
         for (var i = 0; i < lines.length; i++) {
             var L = lines[i];
             if (!L.remove) {
                 for (var k = 0; k < L.edits.length; k++) {
+                    if (L.edits[k].field === "(そのまま)") continue;   // ロゴ有りで残す部分は書き換えない
                     edits.push({ start: L.edits[k].start + L.start, end: L.edits[k].end + L.start,
                                  text: L.edits[k].text, field: L.edits[k].field });
                 }
@@ -288,7 +304,8 @@ var MeishiCore = (function () {
             }
         }
         edits.sort(function (a, b) { return a.start - b.start; });
-        return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover, notes: notes };
+        return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover, notes: notes,
+                 fieldPos: fieldPos };
     }
 
     // 氏名の仮の文字が改行をまたいでいたら、お客さんの名前を「姓」と「名」に分けて入れる。
@@ -456,7 +473,7 @@ var MeishiCore = (function () {
         // --- (c) テンプレートの仮の文字 ---
         for (var k = 0; k < PLACEHOLDERS.length; k++) {
             var ph = PLACEHOLDERS[k];
-            if (ph.logo && values.__logo) continue;   // ロゴ有り → LOGO はそのまま
+            var keepLogo = ph.logo && values.__logo;      // ロゴ有り → LOGO・会社名の仮の文字はそのまま
             var texts = ph.texts.slice(0).sort(function (a, b) { return b.length - a.length; });
             for (var t = 0; t < texts.length; t++) {
                 var src = looseSource(texts[t]);
@@ -471,6 +488,7 @@ var MeishiCore = (function () {
                         while (me > ms && /[ \t\u3000]/.test(line.charAt(me - 1))) me--;
                     }
                     if (!isFree(ms, me)) continue;
+                    if (keepLogo) { add(ms, me, line.substring(ms, me), "(そのまま)", "(そのまま)"); continue; }
                     var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;
                     var nv = kanjiIfNeeded(line.substring(ms, me), val(field), field);
                     if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);
@@ -523,25 +541,16 @@ var MeishiCore = (function () {
 
     // ===== 備考 =========================================================
     //  備考欄にお店が最初から入れている案内文。これ以外に何も書かれていなければ流し込まない
-    var REMARK_BOILERPLATE = [
-        "【不明点など確認時のご連絡先 電話番号やアドレス】",
-        "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。"
-    ];
-
     // お客さんが何か書いていれば true（案内文・区切り線・空白だけなら false）
+    //  文字の種類のちがい（全角・半角、いろいろなダッシュ、見えない空白）があっても案内文と分かるように、
+    //  案内文の決まった言い回しを取り除いてから、何か残るかで判断する
     function remarkHasContent(text) {
-        var lines = String(text || "").split(/\r\n|\r|\n/);
-        for (var i = 0; i < lines.length; i++) {
-            var t = lines[i].replace(/[ \t\u3000]/g, "");
-            if (t === "") continue;
-            if (/^[-‐－ー―─━_＿~〜～=＝]+$/.test(t)) continue;      // 区切り線
-            var isBoilerplate = false;
-            for (var b = 0; b < REMARK_BOILERPLATE.length; b++) {
-                if (t === REMARK_BOILERPLATE[b].replace(/[ \t\u3000]/g, "")) isBoilerplate = true;
-            }
-            if (!isBoilerplate) return true;
-        }
-        return false;
+        var t = String(text || "");
+        t = t.replace(/[ \t\u3000\u00A0\u200B-\u200D\uFEFF\r\n]/g, "");               // 空白・改行・見えない文字
+        t = t.replace(/[【\[［(（]?[ ]*不明点など確認時のご連絡先[^】\]］)）]*[】\]］)）]?/g, "");
+        t = t.replace(/[★☆*＊]?商品ページで入力できなかった項目やご要望等ございましたら[、,，]?こちらにご入力(下|くだ)さい[。.．]?/g, "");
+        t = t.replace(/[-‐‑‒–—―−－ー─━ｰ_＿~〜～=＝・･.。]/g, "");                             // 区切り線
+        return t !== "";
     }
 
     // ===== 注文通知アプリからの指示ファイル ================================

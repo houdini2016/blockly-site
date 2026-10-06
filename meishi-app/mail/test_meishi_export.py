@@ -134,6 +134,21 @@ class MultipleCardsTests(unittest.TestCase):
         self.assertEqual(cards[0]["備考"], "2枚とも急ぎでお願いします")
 
 
+class RemarkTests(unittest.TestCase):
+    BP = ("【不明点など確認時のご連絡先 電話番号やアドレス】\n\n"
+          "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n\n" + "-" * 69)
+
+    def test_boilerplate_only_is_dropped(self):
+        c = M.card_from_order({"order_id": "1"}, [{"label": "", "value": "[備考]\n" + self.BP, "group": None}])
+        self.assertEqual(c["備考"], "")
+        self.assertFalse(M.remark_has_content(self.BP.replace("-", "\u2015")))
+
+    def test_customer_text_keeps_everything(self):
+        c = M.card_from_order({"order_id": "1"}, [{"label": "", "value": "[備考]\n" + self.BP + "\n裏面なし", "group": None}])
+        self.assertTrue(c["備考"].startswith("【不明点など"))
+        self.assertTrue(c["備考"].endswith("裏面なし"))
+
+
 class JobScriptTests(unittest.TestCase):
     def test_write_job_is_ascii(self):
         with tempfile.TemporaryDirectory() as d:
