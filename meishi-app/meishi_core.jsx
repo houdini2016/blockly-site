@@ -294,6 +294,26 @@ var MeishiCore = (function () {
         return /^[0-9０-９○〇+(（]/.test(rest);
     }
 
+    // ===== 漢数字 =========================================================
+    //  テンプレートの仮の文字が漢数字（〇〇〇ー〇〇〇〇 など）なら、お客さんの数字も漢数字にする。
+    //  ルール（仮）：数字を1文字ずつ 〇一二三四五六七八九 に、ハイフンを「ー」にする。
+    //  ※ https://artcode.jp/number_converter.html のルールに合わせて、ここを直す
+    var KANJI_DIGITS = "〇一二三四五六七八九";
+    var KANJI_FIELDS = ["TEL", "FAX", "携帯", "郵便番号", "住所1", "住所2"];
+
+    function toKanjiNumber(s) {
+        return String(s).replace(/[0-9０-９]/g, function (d) {
+            var n = d.charCodeAt(0);
+            return KANJI_DIGITS.charAt(n >= 0xFF10 ? n - 0xFF10 : n - 48);
+        }).replace(/[-‐－−–—]/g, "ー");
+    }
+
+    // 置き換える元の文字に漢数字の「〇」が入っていれば、値を漢数字にする
+    function kanjiIfNeeded(original, value, field) {
+        if (value === "" || !inArray(KANJI_FIELDS, field) || !/〇/.test(original)) return value;
+        return toKanjiNumber(value);
+    }
+
     function planLine(line, values, used) {
         var edits = [];
         var taken = [];  // すでに置き換え対象になった範囲（二重に置き換えないため）
@@ -334,7 +354,7 @@ var MeishiCore = (function () {
             if (vEnd <= found[i].valueStart) continue;  // 値がない見出しは触らない
             var v = val(found[i].field);
             if (v !== "") {
-                add(found[i].valueStart, vEnd, v, found[i].field);
+                add(found[i].valueStart, vEnd, kanjiIfNeeded(line.substring(found[i].valueStart, vEnd), v, found[i].field), found[i].field);
             } else {
                 // 値が空 → 見出しごと消す（前の空白も消す）
                 var s = found[i].labelStart;
@@ -385,7 +405,7 @@ var MeishiCore = (function () {
             if (!isFree(zs, ze)) continue;
             var zv = val("郵便番号");
             if (zv === "") add(zs, ze, "", "郵便番号");
-            else add(zs + 1, ze, zv.replace(/^〒/, ""), "郵便番号");   // 〒 は残す
+            else add(zs + 1, ze, kanjiIfNeeded(line.substring(zs, ze), zv.replace(/^〒/, ""), "郵便番号"), "郵便番号");   // 〒 は残す
         }
 
         // --- (c) テンプレートの仮の文字 ---
@@ -407,7 +427,7 @@ var MeishiCore = (function () {
                     }
                     if (!isFree(ms, me)) continue;
                     var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;
-                    var nv = val(field);
+                    var nv = kanjiIfNeeded(line.substring(ms, me), val(field), field);
                     if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);
                     // 値が空のときは「  : ooooo@...」の「:」も一緒に消す
                     if (nv === "") while (ms > 0 && /[ \t\u3000:：]/.test(line.charAt(ms - 1))) ms--;
@@ -524,6 +544,7 @@ var MeishiCore = (function () {
         trim: trim,
         parseCSV: parseCSV,
         parseJob: parseJob,
+        toKanjiNumber: toKanjiNumber,
         rowsToRecords: rowsToRecords,
         INFO_FIELDS: INFO_FIELDS,
         prepareValues: prepareValues,

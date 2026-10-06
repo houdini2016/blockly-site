@@ -156,6 +156,42 @@ var MeishiAI = (function () {
         if (count > 0) warnings.push("LOGO 横のマークを " + count + " 個消しました（位置を確認してください）");
     }
 
+    // ----- 備考 -----
+
+    var MM = 72 / 25.4;                    // 1mm = 約2.83pt
+    var REMARK_OFFSET = 80 * MM;           // テンプレートの中心から 8cm 下
+    var REMARK_SIZE = 7;                   // 7pt
+    var REMARK_FONTS = ["MS-Gothic", "MSGothic", "MS Gothic", "ＭＳゴシック", "ＭＳ ゴシック"];
+
+    function findFont(names) {
+        for (var i = 0; i < names.length; i++) {
+            try { return app.textFonts.getByName(names[i]); } catch (e) { /* 次の名前を試す */ }
+        }
+        return null;
+    }
+
+    // お客さんの備考を、テンプレートの中心から 8cm 下に 7pt の MSゴシックで入れる（中央揃え）
+    function addRemarks(doc, text, warnings) {
+        text = C.trim(text || "");
+        if (text === "") return;
+        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect;   // [左, 上, 右, 下]
+        var cx = (ab[0] + ab[2]) / 2, cy = (ab[1] + ab[3]) / 2;
+
+        var layer = doc.layers.add();
+        layer.name = "備考";
+        var tf = layer.textFrames.add();
+        tf.contents = text.replace(/\r\n|\n/g, "\r");
+        var range = tf.textRange;
+        range.characterAttributes.size = REMARK_SIZE;
+        var font = findFont(REMARK_FONTS);
+        if (font) range.characterAttributes.textFont = font;
+        else warnings.push("MSゴシックが見つからないため、備考は標準のフォントで入れました");
+        range.paragraphAttributes.justification = Justification.CENTER;
+        // 文字のかたまりの「上の中央」を、中心から 8cm 下にそろえる
+        tf.position = [cx - tf.width / 2, cy - REMARK_OFFSET];
+        warnings.push("備考を名刺の下（中心から8cm下）に入れました");
+    }
+
     // ----- 書類全体の書き換え -----
 
     // 書類の文字を注文内容に書き換える。確認してほしいことを warnings に足す。
@@ -217,7 +253,10 @@ var MeishiAI = (function () {
         // 名刺には入れていないが、目で確認してほしい情報
         if (C.hasLogoData(rec)) warnings.push("ロゴデータ有り: LOGO の位置にロゴを配置してください");
         if (rec["自由行"]) warnings.push("自由記入（行目）: " + oneLine(rec["自由行"], 80));
-        if (rec["備考"]) warnings.push("備考: " + oneLine(rec["備考"], 80));
+        if (rec["備考"]) {
+            try { addRemarks(doc, rec["備考"], warnings); }
+            catch (remarkErr) { warnings.push("備考を入れられませんでした（" + remarkErr.message + "）: " + oneLine(rec["備考"], 80)); }
+        }
         if (rec["確認事項"]) warnings.push(rec["確認事項"]);
     }
 
@@ -226,6 +265,8 @@ var MeishiAI = (function () {
         oneLine: oneLine,
         isNextToLogo: isNextToLogo,
         pickMarks: pickMarks,
+        addRemarks: addRemarks,
+        REMARK_OFFSET: REMARK_OFFSET,
         editDocument: editDocument
     };
 })();

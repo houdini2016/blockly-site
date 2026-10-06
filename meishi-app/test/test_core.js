@@ -166,7 +166,7 @@ test("増やした仮の文字: ROGO・店長・2行の住所・縦書きの電�
     assert.strictEqual(run("店\u3000長", rec).text, "部\u3000長");
     assert.strictEqual(run("○○○県○○市○○町\r00-00-0○○○○000号", rec).text, "東京都港区1-2-3\rABCビル2F");
     assert.strictEqual(run("電\u3000話\u3000〇〇〇ー〇〇〇ー〇〇〇〇\rFAX\u3000〇〇〇ー〇〇〇ー〇〇〇〇", rec).text,
-                       "電\u3000話\u300003-1111-2222");
+                       "電\u3000話\u3000〇三ー一一一一ー二二二二");   // 漢数字のテンプレートなので漢数字に
     assert.strictEqual(run("株式会社\r〇〇商事", rec).text, "有限会社\rテスト");
     assert.strictEqual(run("TEL 000-000-0000", rec).text, "TEL 03-1111-2222");
     assert.strictEqual(run("Web デザイン", rec).text, "Web デザイン");   // 見出しに見えても値でなければ触らない
@@ -197,6 +197,17 @@ test("見つからない仮の文字が残る行は消す（お客さんの値�
     var keep = C.planEdits("○○○○ 000-000", {}, { keepLeftover: true });
     assert.strictEqual(keep.edits.length, 0);
     assert.deepStrictEqual(keep.leftover, ["○○○○ 000-000"]);
+});
+
+// ---- 漢数字のテンプレート -------------------------------------------
+test("漢数字: 仮の文字が〇なら数字を漢数字にする（○の普通のテンプレートはそのまま）", function () {
+    var rec = { "TEL": "03-1234-5678", "郵便番号": "100-0005", "住所1": "東京都港区1-2-3" };
+    assert.strictEqual(C.toKanjiNumber("０３-1234-5678"), "〇三ー一二三四ー五六七八");
+    assert.strictEqual(run("電\u3000話\u3000〇〇〇ー〇〇〇ー〇〇〇〇", rec).text, "電\u3000話\u3000〇三ー一二三四ー五六七八");
+    assert.strictEqual(run("〒〇〇〇ー〇〇〇〇", rec).text, "〒一〇〇ー〇〇〇五");
+    assert.strictEqual(run("〇〇〇県〇〇〇市〇〇〇町〇〇ー〇ー〇〇", rec).text, "東京都港区一ー二ー三");
+    assert.strictEqual(run("Tel : 000-000-0000", rec).text, "Tel : 03-1234-5678");
+    assert.strictEqual(run("○○○県○○市○○町00-00-0", rec).text, "東京都港区1-2-3");
 });
 
 // ---- その他 ---------------------------------------------------------

@@ -145,5 +145,34 @@ test("Illustrator が改行をまたぐ削除でエラーを出しても、中�
     assert.ok(w.join("\n").indexOf("書式が一部くずれた") >= 0);
 });
 
+test("備考: 中心から8cm下に 7pt・MSゴシック・中央揃えで入れる", function () {
+    var doc = makeDoc([["鈴\u3000木\u3000花\u3000子", [0, 0, 10, -10]]]);
+    var added = [];
+    doc.artboards = [{ artboardRect: [0, 858.9, 612.3, 0] }];
+    doc.artboards.getActiveArtboardIndex = function () { return 0; };
+    doc.layers = { add: function () {
+        var layer = { name: "", textFrames: { add: function () {
+            var t = { contents: "", width: 100, position: null,
+                      textRange: { characterAttributes: {}, paragraphAttributes: {} } };
+            added.push(t); return t;
+        } } };
+        return layer;
+    } };
+    global.app = { textFonts: { getByName: function (n) { if (n === "MS-Gothic") return "MSG"; throw new Error("no"); } } };
+    global.Justification = { CENTER: "center" };
+    var w = [];
+    AI.editDocument(doc, { "氏名": "山田 太郎", "備考": "裏面は無しで\nお願いします" }, w);
+    assert.strictEqual(added.length, 1);
+    var t = added[0];
+    assert.strictEqual(t.contents, "裏面は無しで\rお願いします");
+    assert.strictEqual(t.textRange.characterAttributes.size, 7);
+    assert.strictEqual(t.textRange.characterAttributes.textFont, "MSG");
+    assert.strictEqual(t.textRange.paragraphAttributes.justification, "center");
+    var cx = 612.3 / 2, cy = 858.9 / 2;
+    assert.ok(Math.abs(t.position[0] - (cx - 50)) < 0.01);
+    assert.ok(Math.abs(t.position[1] - (cy - 80 * 72 / 25.4)) < 0.01);   // 8cm = 226.77pt
+    assert.ok(w.join("\n").indexOf("備考を名刺の下") >= 0);
+});
+
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
 process.exit(failures === 0 ? 0 : 1);

@@ -159,24 +159,78 @@ def card_from_order(order, items):
     return card
 
 
+# 名刺1枚ごとに1回ずつ出てくる項目（2回目が出てきたら次の名刺とみなす）
+_CARD_LABELS = {"会社名", "部署名", "肩書き", "肩書き(英語)", "氏名", "ふりがな"}
+
+
+def _card_key(it):
+    """名刺ごとの項目なら、その種類を返す（注文全体の項目なら None）。"""
+    label, value, group = it.get("label", ""), it.get("value", ""), it.get("group")
+    if group in ("address", "lines"):
+        return group
+    if label in _CARD_LABELS:
+        return label
+    if "ロゴデータ" in value:
+        return "ロゴデータ"
+    return None
+
+
+def cards_from_order(order, items):
+    """1つの注文に名刺が2枚以上（商品が2つ以上）あるとき、名刺ごとに分ける。
+
+    メールでは商品ごとに「会社名・氏名・住所…」が続けて書かれているので、
+    同じ項目が2回目に出てきたところで次の名刺に切り替える。
+    備考など注文全体の項目は、すべての名刺に付ける。
+    """
+    common, groups, seen = [], [], set()
+    for it in items:
+        key = _card_key(it)
+        is_note = it.get("label") == "当店への備考" or it.get("value", "").startswith("[備考]")
+        if is_note:
+            common.append(it)
+        elif key is None:
+            (groups[-1] if groups else common).append(it)
+        else:
+            if not groups or key in seen:
+                groups.append([])
+                seen = set()
+            seen.add(key)
+            groups[-1].append(it)
+    if not groups:
+        return [card_from_order(order, items)]
+    head = [it for it in common if not (it.get("label") == "当店への備考" or it.get("value", "").startswith("[備考]"))]
+    notes = [it for it in common if it not in head]
+    return [card_from_order(order, head + g + notes) for g in groups]
+
+
+def card_title(card, number):
+    """「注文1：山田 太郎（株式会社サンプル）」のような、選ぶときの表示。"""
+    who = card.get("氏名") or card.get("会社名") or "名前なし"
+    extra = card.get("会社名") if card.get("氏名") and card.get("会社名") else ""
+    return f"注文{number}：{who}" + (f"（{extra}）" if extra else "")
+
+
 def _clean_name(s):
     """ファイル名に使えない文字と空白を取り除く。"""
     return re.sub(r"[\\/:*?\"<>|\s\u3000]+", "", s or "")
 
 
-def output_path(card, folder=OUTPUT_DIR):
+def output_path(card, folder=OUTPUT_DIR, taken=None):
     """保存先: 注文番号_名刺の氏名（なければ会社名）_注文者氏名.ai
 
     Yahoo! は注文者名がないので「注文番号_氏名.ai」。同じ名前があれば _2, _3 … を付ける。
+    taken: 今回まとめて作るほかの名刺の保存先（まだファイルがないので、ここで重ならないようにする）
     """
+    taken = taken if taken is not None else set()
     parts = [_clean_name(card.get("注文番号")) or "注文番号なし",
              _clean_name(card.get("氏名")) or _clean_name(card.get("会社名")) or "名前なし"]
     if _clean_name(card.get("注文者")):
         parts.append(_clean_name(card["注文者"]))
     base = os.path.join(folder, "_".join(parts))
     path, n = base + ".ai", 2
-    while os.path.exists(path):
+    while os.path.exists(path) or path in taken:
         path, n = f"{base}_{n}.ai", n + 1
+    taken.add(path)
     return path
 
 
@@ -569,6 +623,26 @@ JOB_JSX = (
     '        return /^[0-9\\uFF10-\\uFF19\\u25CB\\u3007+(\\uFF08]/.test(rest);\n'
     '    }\n'
     '\n'
+    '    // ===== \\u6F22\\u6570\\u5B57 =========================================================\n'
+    '    //  \\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4EEE\\u306E\\u6587\\u5B57\\u304C\\u6F22\\u6570\\u5B57\\uFF08\\u3007\\u3007\\u3007\\u30FC\\u3007\\u3007\\u3007\\u3007 \\u306A\\u3069\\uFF09\\u306A\\u3089\\u3001\\u304A\\u5BA2\\u3055\\u3093\\u306E\\u6570\\u5B57\\u3082\\u6F22\\u6570\\u5B57\\u306B\\u3059\\u308B\\u3002\n'
+    '    //  \\u30EB\\u30FC\\u30EB\\uFF08\\u4EEE\\uFF09\\uFF1A\\u6570\\u5B57\\u30921\\u6587\\u5B57\\u305A\\u3064 \\u3007\\u4E00\\u4E8C\\u4E09\\u56DB\\u4E94\\u516D\\u4E03\\u516B\\u4E5D \\u306B\\u3001\\u30CF\\u30A4\\u30D5\\u30F3\\u3092\\u300C\\u30FC\\u300D\\u306B\\u3059\\u308B\\u3002\n'
+    '    //  \\u203B https://artcode.jp/number_converter.html \\u306E\\u30EB\\u30FC\\u30EB\\u306B\\u5408\\u308F\\u305B\\u3066\\u3001\\u3053\\u3053\\u3092\\u76F4\\u3059\n'
+    '    var KANJI_DIGITS = "\\u3007\\u4E00\\u4E8C\\u4E09\\u56DB\\u4E94\\u516D\\u4E03\\u516B\\u4E5D";\n'
+    '    var KANJI_FIELDS = ["TEL", "FAX", "\\u643A\\u5E2F", "\\u90F5\\u4FBF\\u756A\\u53F7", "\\u4F4F\\u62401", "\\u4F4F\\u62402"];\n'
+    '\n'
+    '    function toKanjiNumber(s) {\n'
+    '        return String(s).replace(/[0-9\\uFF10-\\uFF19]/g, function (d) {\n'
+    '            var n = d.charCodeAt(0);\n'
+    '            return KANJI_DIGITS.charAt(n >= 0xFF10 ? n - 0xFF10 : n - 48);\n'
+    '        }).replace(/[-\\u2010\\uFF0D\\u2212\\u2013\\u2014]/g, "\\u30FC");\n'
+    '    }\n'
+    '\n'
+    '    // \\u7F6E\\u304D\\u63DB\\u3048\\u308B\\u5143\\u306E\\u6587\\u5B57\\u306B\\u6F22\\u6570\\u5B57\\u306E\\u300C\\u3007\\u300D\\u304C\\u5165\\u3063\\u3066\\u3044\\u308C\\u3070\\u3001\\u5024\\u3092\\u6F22\\u6570\\u5B57\\u306B\\u3059\\u308B\n'
+    '    function kanjiIfNeeded(original, value, field) {\n'
+    '        if (value === "" || !inArray(KANJI_FIELDS, field) || !/\\u3007/.test(original)) return value;\n'
+    '        return toKanjiNumber(value);\n'
+    '    }\n'
+    '\n'
     '    function planLine(line, values, used) {\n'
     '        var edits = [];\n'
     '        var taken = [];  // \\u3059\\u3067\\u306B\\u7F6E\\u304D\\u63DB\\u3048\\u5BFE\\u8C61\\u306B\\u306A\\u3063\\u305F\\u7BC4\\u56F2\\uFF08\\u4E8C\\u91CD\\u306B\\u7F6E\\u304D\\u63DB\\u3048\\u306A\\u3044\\u305F\\u3081\\uFF09\n'
@@ -609,7 +683,7 @@ JOB_JSX = (
     '            if (vEnd <= found[i].valueStart) continue;  // \\u5024\\u304C\\u306A\\u3044\\u898B\\u51FA\\u3057\\u306F\\u89E6\\u3089\\u306A\\u3044\n'
     '            var v = val(found[i].field);\n'
     '            if (v !== "") {\n'
-    '                add(found[i].valueStart, vEnd, v, found[i].field);\n'
+    '                add(found[i].valueStart, vEnd, kanjiIfNeeded(line.substring(found[i].valueStart, vEnd), v, found[i].field), found[i].field);\n'
     '            } else {\n'
     '                // \\u5024\\u304C\\u7A7A \\u2192 \\u898B\\u51FA\\u3057\\u3054\\u3068\\u6D88\\u3059\\uFF08\\u524D\\u306E\\u7A7A\\u767D\\u3082\\u6D88\\u3059\\uFF09\n'
     '                var s = found[i].labelStart;\n'
@@ -660,7 +734,7 @@ JOB_JSX = (
     '            if (!isFree(zs, ze)) continue;\n'
     '            var zv = val("\\u90F5\\u4FBF\\u756A\\u53F7");\n'
     '            if (zv === "") add(zs, ze, "", "\\u90F5\\u4FBF\\u756A\\u53F7");\n'
-    '            else add(zs + 1, ze, zv.replace(/^\\u3012/, ""), "\\u90F5\\u4FBF\\u756A\\u53F7");   // \\u3012 \\u306F\\u6B8B\\u3059\n'
+    '            else add(zs + 1, ze, kanjiIfNeeded(line.substring(zs, ze), zv.replace(/^\\u3012/, ""), "\\u90F5\\u4FBF\\u756A\\u53F7"), "\\u90F5\\u4FBF\\u756A\\u53F7");   // \\u3012 \\u306F\\u6B8B\\u3059\n'
     '        }\n'
     '\n'
     '        // --- (c) \\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4EEE\\u306E\\u6587\\u5B57 ---\n'
@@ -682,7 +756,7 @@ JOB_JSX = (
     '                    }\n'
     '                    if (!isFree(ms, me)) continue;\n'
     '                    var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;\n'
-    '                    var nv = val(field);\n'
+    '                    var nv = kanjiIfNeeded(line.substring(ms, me), val(field), field);\n'
     '                    if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);\n'
     '                    // \\u5024\\u304C\\u7A7A\\u306E\\u3068\\u304D\\u306F\\u300C  : ooooo@...\\u300D\\u306E\\u300C:\\u300D\\u3082\\u4E00\\u7DD2\\u306B\\u6D88\\u3059\n'
     '                    if (nv === "") while (ms > 0 && /[ \\t\\u3000:\\uFF1A]/.test(line.charAt(ms - 1))) ms--;\n'
@@ -799,6 +873,7 @@ JOB_JSX = (
     '        trim: trim,\n'
     '        parseCSV: parseCSV,\n'
     '        parseJob: parseJob,\n'
+    '        toKanjiNumber: toKanjiNumber,\n'
     '        rowsToRecords: rowsToRecords,\n'
     '        INFO_FIELDS: INFO_FIELDS,\n'
     '        prepareValues: prepareValues,\n'
@@ -976,6 +1051,42 @@ JOB_JSX = (
     '        if (count > 0) warnings.push("LOGO \\u6A2A\\u306E\\u30DE\\u30FC\\u30AF\\u3092 " + count + " \\u500B\\u6D88\\u3057\\u307E\\u3057\\u305F\\uFF08\\u4F4D\\u7F6E\\u3092\\u78BA\\u8A8D\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044\\uFF09");\n'
     '    }\n'
     '\n'
+    '    // ----- \\u5099\\u8003 -----\n'
+    '\n'
+    '    var MM = 72 / 25.4;                    // 1mm = \\u7D042.83pt\n'
+    '    var REMARK_OFFSET = 80 * MM;           // \\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4E2D\\u5FC3\\u304B\\u3089 8cm \\u4E0B\n'
+    '    var REMARK_SIZE = 7;                   // 7pt\n'
+    '    var REMARK_FONTS = ["MS-Gothic", "MSGothic", "MS Gothic", "\\uFF2D\\uFF33\\u30B4\\u30B7\\u30C3\\u30AF", "\\uFF2D\\uFF33 \\u30B4\\u30B7\\u30C3\\u30AF"];\n'
+    '\n'
+    '    function findFont(names) {\n'
+    '        for (var i = 0; i < names.length; i++) {\n'
+    '            try { return app.textFonts.getByName(names[i]); } catch (e) { /* \\u6B21\\u306E\\u540D\\u524D\\u3092\\u8A66\\u3059 */ }\n'
+    '        }\n'
+    '        return null;\n'
+    '    }\n'
+    '\n'
+    '    // \\u304A\\u5BA2\\u3055\\u3093\\u306E\\u5099\\u8003\\u3092\\u3001\\u30C6\\u30F3\\u30D7\\u30EC\\u30FC\\u30C8\\u306E\\u4E2D\\u5FC3\\u304B\\u3089 8cm \\u4E0B\\u306B 7pt \\u306E MS\\u30B4\\u30B7\\u30C3\\u30AF\\u3067\\u5165\\u308C\\u308B\\uFF08\\u4E2D\\u592E\\u63C3\\u3048\\uFF09\n'
+    '    function addRemarks(doc, text, warnings) {\n'
+    '        text = C.trim(text || "");\n'
+    '        if (text === "") return;\n'
+    '        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect;   // [\\u5DE6, \\u4E0A, \\u53F3, \\u4E0B]\n'
+    '        var cx = (ab[0] + ab[2]) / 2, cy = (ab[1] + ab[3]) / 2;\n'
+    '\n'
+    '        var layer = doc.layers.add();\n'
+    '        layer.name = "\\u5099\\u8003";\n'
+    '        var tf = layer.textFrames.add();\n'
+    '        tf.contents = text.replace(/\\r\\n|\\n/g, "\\r");\n'
+    '        var range = tf.textRange;\n'
+    '        range.characterAttributes.size = REMARK_SIZE;\n'
+    '        var font = findFont(REMARK_FONTS);\n'
+    '        if (font) range.characterAttributes.textFont = font;\n'
+    '        else warnings.push("MS\\u30B4\\u30B7\\u30C3\\u30AF\\u304C\\u898B\\u3064\\u304B\\u3089\\u306A\\u3044\\u305F\\u3081\\u3001\\u5099\\u8003\\u306F\\u6A19\\u6E96\\u306E\\u30D5\\u30A9\\u30F3\\u30C8\\u3067\\u5165\\u308C\\u307E\\u3057\\u305F");\n'
+    '        range.paragraphAttributes.justification = Justification.CENTER;\n'
+    '        // \\u6587\\u5B57\\u306E\\u304B\\u305F\\u307E\\u308A\\u306E\\u300C\\u4E0A\\u306E\\u4E2D\\u592E\\u300D\\u3092\\u3001\\u4E2D\\u5FC3\\u304B\\u3089 8cm \\u4E0B\\u306B\\u305D\\u308D\\u3048\\u308B\n'
+    '        tf.position = [cx - tf.width / 2, cy - REMARK_OFFSET];\n'
+    '        warnings.push("\\u5099\\u8003\\u3092\\u540D\\u523A\\u306E\\u4E0B\\uFF08\\u4E2D\\u5FC3\\u304B\\u30898cm\\u4E0B\\uFF09\\u306B\\u5165\\u308C\\u307E\\u3057\\u305F");\n'
+    '    }\n'
+    '\n'
     '    // ----- \\u66F8\\u985E\\u5168\\u4F53\\u306E\\u66F8\\u304D\\u63DB\\u3048 -----\n'
     '\n'
     '    // \\u66F8\\u985E\\u306E\\u6587\\u5B57\\u3092\\u6CE8\\u6587\\u5185\\u5BB9\\u306B\\u66F8\\u304D\\u63DB\\u3048\\u308B\\u3002\\u78BA\\u8A8D\\u3057\\u3066\\u307B\\u3057\\u3044\\u3053\\u3068\\u3092 warnings \\u306B\\u8DB3\\u3059\\u3002\n'
@@ -1037,7 +1148,10 @@ JOB_JSX = (
     '        // \\u540D\\u523A\\u306B\\u306F\\u5165\\u308C\\u3066\\u3044\\u306A\\u3044\\u304C\\u3001\\u76EE\\u3067\\u78BA\\u8A8D\\u3057\\u3066\\u307B\\u3057\\u3044\\u60C5\\u5831\n'
     '        if (C.hasLogoData(rec)) warnings.push("\\u30ED\\u30B4\\u30C7\\u30FC\\u30BF\\u6709\\u308A: LOGO \\u306E\\u4F4D\\u7F6E\\u306B\\u30ED\\u30B4\\u3092\\u914D\\u7F6E\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044");\n'
     '        if (rec["\\u81EA\\u7531\\u884C"]) warnings.push("\\u81EA\\u7531\\u8A18\\u5165\\uFF08\\u884C\\u76EE\\uFF09: " + oneLine(rec["\\u81EA\\u7531\\u884C"], 80));\n'
-    '        if (rec["\\u5099\\u8003"]) warnings.push("\\u5099\\u8003: " + oneLine(rec["\\u5099\\u8003"], 80));\n'
+    '        if (rec["\\u5099\\u8003"]) {\n'
+    '            try { addRemarks(doc, rec["\\u5099\\u8003"], warnings); }\n'
+    '            catch (remarkErr) { warnings.push("\\u5099\\u8003\\u3092\\u5165\\u308C\\u3089\\u308C\\u307E\\u305B\\u3093\\u3067\\u3057\\u305F\\uFF08" + remarkErr.message + "\\uFF09: " + oneLine(rec["\\u5099\\u8003"], 80)); }\n'
+    '        }\n'
     '        if (rec["\\u78BA\\u8A8D\\u4E8B\\u9805"]) warnings.push(rec["\\u78BA\\u8A8D\\u4E8B\\u9805"]);\n'
     '    }\n'
     '\n'
@@ -1046,6 +1160,8 @@ JOB_JSX = (
     '        oneLine: oneLine,\n'
     '        isNextToLogo: isNextToLogo,\n'
     '        pickMarks: pickMarks,\n'
+    '        addRemarks: addRemarks,\n'
+    '        REMARK_OFFSET: REMARK_OFFSET,\n'
     '        editDocument: editDocument\n'
     '    };\n'
     '})();\n'

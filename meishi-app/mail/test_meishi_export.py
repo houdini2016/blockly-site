@@ -76,6 +76,9 @@ class CardFromOrderTests(unittest.TestCase):
             self.assertEqual(os.path.basename(p), "297406-20261006-0833446491_山田太郎_山田花子.ai")
             open(p, "w").close()
             self.assertTrue(M.output_path(card, d).endswith("_山田花子_2.ai"))   # 同じ名前があれば _2
+            taken = set()
+            a, b = M.output_path(card, d, taken), M.output_path(card, d, taken)   # 同じ注文で同じ名前が2枚
+            self.assertNotEqual(a, b)
             # 氏名がなければ会社名、注文者がなければ付けない（Yahoo!）
             self.assertEqual(os.path.basename(M.output_path({"注文番号": "artcode-1", "会社名": "株式会社 A/B"}, d)),
                              "artcode-1_株式会社AB.ai")
@@ -99,6 +102,37 @@ class CardFromOrderTests(unittest.TestCase):
             self.assertEqual(rows[0]["氏名"], "山田 太郎")
             self.assertEqual(rows[0]["テンプレート"], "/T/business008.ai")
             self.assertEqual(list(rows[0].keys()), M.CSV_COLUMNS)
+
+class MultipleCardsTests(unittest.TestCase):
+    ITEMS = [
+        {"label": "注文番号", "value": "297406-1", "group": None},
+        {"label": "", "value": "お試し名刺40枚", "group": None},
+        {"label": "", "value": "ロゴデータ（無しの場合…）無し", "group": None},
+        {"label": "会社名", "value": "株式会社A", "group": None},
+        {"label": "氏名", "value": "山田 太郎", "group": None},
+        {"label": "住所", "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nTEL：03-1111-1111", "group": "address"},
+        {"label": "", "value": "お試し名刺40枚", "group": None},
+        {"label": "", "value": "ロゴデータ（無しの場合…）有り", "group": None},
+        {"label": "会社名", "value": "株式会社A", "group": None},
+        {"label": "氏名", "value": "佐藤 花子", "group": None},
+        {"label": "住所", "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nTEL：03-2222-2222", "group": "address"},
+        {"label": "", "value": "[備考]\n2枚とも急ぎでお願いします", "group": None},
+    ]
+
+    def test_two_cards_in_one_order(self):
+        cards = M.cards_from_order({"order_id": "297406-1", "mall": "楽天", "customer": "山田 太郎"}, self.ITEMS)
+        self.assertEqual(len(cards), 2)
+        self.assertEqual([c["氏名"] for c in cards], ["山田 太郎", "佐藤 花子"])
+        self.assertEqual([c["TEL"] for c in cards], ["03-1111-1111", "03-2222-2222"])
+        self.assertEqual([c["ロゴデータ"] for c in cards], ["無し", "有り"])
+        self.assertEqual([c["備考"] for c in cards], ["2枚とも急ぎでお願いします"] * 2)   # 備考は両方に
+        self.assertEqual(M.card_title(cards[1], 2), "注文2：佐藤 花子（株式会社A）")
+
+    def test_one_card(self):
+        cards = M.cards_from_order({"order_id": "1"}, self.ITEMS[:6] + self.ITEMS[-1:])
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0]["備考"], "2枚とも急ぎでお願いします")
+
 
 class JobScriptTests(unittest.TestCase):
     def test_write_job_is_ascii(self):
