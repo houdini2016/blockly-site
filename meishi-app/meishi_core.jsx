@@ -58,19 +58,42 @@ var MeishiCore = (function () {
     //       お客さんの名前も同じ空け方にそろえます
     //     ・wholeLine: true の項目は「その行がその文字だけ」のときだけ置き換えます
     // -----------------------------------------------------------------
+    //     ・usedAs は「差し込み先あり」の判定に使う元の項目名
+    //     ・○ と 〇 は同じ文字として探します。同じ項目の中では長い文字から先に探します
     var PLACEHOLDERS = [
-        { field: "氏名",       texts: ["鈴木太郎", "鈴木花子", "鈴木一郎"], spaced: true },
+        { field: "氏名",       spaced: true,
+          texts: ["鈴木太郎", "鈴木花子", "鈴木一郎", "佐藤一郎", "海山川地", "中村絵美"] },
         // 「ロゴデータ」が無しなら LOGO の位置に会社名が入る（有りならロゴを手作業で配置）
-        { field: "会社名",     texts: ["LOGO"], wholeLine: true, logo: true },
-        { field: "肩書",       texts: ["代表取締役"] },
-        { field: "氏名英字",   texts: ["Ichiro Suzuki", "Taro Suzuki", "Hanako Suzuki"] },
+        { field: "会社名",     wholeLine: true, logo: true,
+          texts: ["LOGO", "Logo", "ROGO", "rogo", "L◉G◉"] },
+        // 文字のロゴ（英語面では英字の会社名があればそちらを使う）
+        { field: "会社名",     wholeLine: true, logo: true, altField: "会社名英字",
+          texts: ["artcode", "アートコード"] },
+        { field: "会社名",     wholeLine: true,
+          texts: ["株式会社●●商事", "株式会社海山商事", "○○商事○○○企画課"] },
+        // 「株式会社」と「○○商事」が別の行になっているデザイン
+        { field: "会社名_前",  wholeLine: true, usedAs: "会社名", texts: ["株式会社"] },
+        { field: "会社名_後",  wholeLine: true, usedAs: "会社名", texts: ["○○商事", "海山商事"] },
+        { field: "肩書",       texts: ["代表取締役"], spaced: true },
+        { field: "肩書",       wholeLine: true, spaced: true,
+          texts: ["店長", "オーナー", "ショップオーナー", "取締役社長", "代表", "営業事務", "営業課長", "課長",
+                  "保育士", "料理長", "料理研究家", "ライター", "シンガーソングライター", "スタイリスト",
+                  "インストラクター", "司書補", "カメラマン", "バイヤー", "先生", "ボランティア"] },
+        { field: "氏名英字",   texts: ["Ichiro Suzuki", "Taro Suzuki", "Hanako Suzuki", "Emi Nakamura"] },
         { field: "肩書英字",   texts: ["President"], wholeLine: true },
-        { field: "会社名英字", texts: ["artcode"], wholeLine: true },
-        { field: "住所1",      texts: ["○○○県○○市○○町00-00-0"] },
-        { field: "住所2",      texts: ["○○○○○000号"] },
+        { field: "住所1",
+          texts: ["○○○県○○市○○町00-00-0", "○○○県○○市○○町0-00-0", "○○○県○○○○市○○○町1-1-1",
+                  "○○○県○○○市○○○町1-2-3", "○○○県○○○市○○○町○○ー○ー○○", "○○県○○市○○町00-00-0",
+                  "○○○○○○○○○○町000-0000", "○○○県○○市○○町"] },
+        { field: "住所2",      texts: ["00-00-0○○○○000号", "○○○○○000号", "○○○000号"] },
+        { field: "メール",     texts: ["ooooo@oooo.com"] },
+        { field: "URL",        texts: ["http://www.0123456.jp/"] },
         { field: "英字住所1",  texts: ["6-1-1-3 Hirasaku,Yokosuka city,"] },
         { field: "英字住所2",  texts: ["Kanagawa 238-0032,Japan"] }
     ];
+
+    // 会社名を「株式会社」と「残り」に分ける（「株式会社」の行が別になっているデザイン用）
+    var COMPANY_PREFIX = /^(株式会社|有限会社|合同会社|合資会社|合名会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人社団|医療法人|社会福祉法人|学校法人|特定非営利活動法人|NPO法人)[ \t\u3000]*/;
 
     // -----------------------------------------------------------------
     //  3. 「Tel :」「Fax :」などの見出しの後ろにある値を置き換える項目
@@ -105,7 +128,7 @@ var MeishiCore = (function () {
         for (var i = 0; i < text.length; i++) {
             var c = text.charAt(i);
             if (/[ \t\u3000]/.test(c)) continue;
-            out.push(escapeRegex(c));
+            out.push(c === "○" || c === "〇" ? "[○〇]" : escapeRegex(c));
         }
         return out.join(WS + "*");
     }
@@ -175,7 +198,23 @@ var MeishiCore = (function () {
         var v = {};
         for (var k in rec) if (rec.hasOwnProperty(k)) v[k] = rec[k];
         if (v["部署"]) v["肩書"] = v["肩書"] ? v["部署"] + "\u3000" + v["肩書"] : v["部署"];
+        var company = v["会社名"] || "";
+        var m = company.match(COMPANY_PREFIX);
+        v["会社名_前"] = m ? m[1] : "";
+        v["会社名_後"] = m ? company.substring(m[0].length) : company;
         return v;
+    }
+
+    // その文字が「LOGO」などロゴの仮の文字か（LOGO 横のマークを探すときに使う）
+    function isLogoText(text) {
+        var t = String(text).replace(/[ \t\u3000\r\n]/g, "");
+        for (var k = 0; k < PLACEHOLDERS.length; k++) {
+            if (!PLACEHOLDERS[k].logo) continue;
+            for (var i = 0; i < PLACEHOLDERS[k].texts.length; i++) {
+                if (PLACEHOLDERS[k].texts[i] === t) return true;
+            }
+        }
+        return false;
     }
 
     // ロゴデータが「有り」の注文か
@@ -224,6 +263,13 @@ var MeishiCore = (function () {
         return { edits: edits, used: used };
     }
 
+    // コロンのない見出しのときは、後ろが本当に電話番号などかを確かめる（「Web デザイン」などを避ける）
+    function looksLikeValue(field, rest) {
+        if (field === "メール") return /@/.test(rest);
+        if (field === "URL") return /^(https?|www)/i.test(rest);
+        return /^[0-9０-９○〇+(（]/.test(rest);
+    }
+
     function planLine(line, values, used) {
         var edits = [];
         var taken = [];  // すでに置き換え対象になった範囲（二重に置き換えないため）
@@ -234,10 +280,10 @@ var MeishiCore = (function () {
             }
             return true;
         }
-        function add(s, e, text, field) {
+        function add(s, e, text, field, usedAs) {
             edits.push({ start: s, end: e, text: text, field: field });
             taken.push([s, e]);
-            if (!inArray(used, field)) used.push(field);
+            if (!inArray(used, usedAs || field)) used.push(usedAs || field);
         }
         function val(field) { return values[field] ? values[field] : ""; }
 
@@ -245,9 +291,11 @@ var MeishiCore = (function () {
         var found = [];
         for (var L = 0; L < LABELS.length; L++) {
             for (var w = 0; w < LABELS[L].words.length; w++) {
-                var re = new RegExp("(^|" + WS + ")(" + looseSource(LABELS[L].words[w]) + ")" + WS + "*[:：]" + WS + "*", "g");
+                // 「Tel :」のようにコロンがあるか、「電話 〇〇〇」のように空白のあとに値が続く
+                var re = new RegExp("(^|" + WS + ")(" + looseSource(LABELS[L].words[w]) + ")(" + WS + "*[:：]" + WS + "*|" + WS + "+)", "g");
                 var m;
                 while ((m = re.exec(line)) !== null) {
+                    if (!/[:：]/.test(m[3]) && !looksLikeValue(LABELS[L].field, line.substring(m.index + m[0].length))) continue;
                     var labelStart = m.index + m[1].length;
                     var dup = false;
                     for (var d = 0; d < found.length; d++) if (found[d].labelStart === labelStart) dup = true;
@@ -271,6 +319,22 @@ var MeishiCore = (function () {
             }
         }
 
+        // --- (a2) 見出しだけの行（「E-mail」の値が別のテキストになっているデザイン）---
+        //     値が空なら見出しも消す。値があれば見出しはそのまま
+        if (found.length === 0) {
+            for (var L2 = 0; L2 < LABELS.length; L2++) {
+                for (var w2 = 0; w2 < LABELS[L2].words.length; w2++) {
+                    var only = new RegExp("^" + WS + "*" + looseSource(LABELS[L2].words[w2]) + WS + "*[:：]?" + WS + "*$");
+                    if (only.test(line) && val(LABELS[L2].field) === "" && isFree(0, line.length)) {
+                        add(0, line.length, "", LABELS[L2].field);
+                    }
+                }
+            }
+            if (/^[ \t\u3000]*〒[ \t\u3000]*$/.test(line) && val("郵便番号") === "" && isFree(0, line.length)) {
+                add(0, line.length, "", "郵便番号");
+            }
+        }
+
         // --- (b) 見出しのない URL・メール・郵便番号 ---
         var patterns = [
             { field: "URL", re: /https?:\/\/[^ \t\u3000]+/g },
@@ -290,7 +354,7 @@ var MeishiCore = (function () {
                 add(ps, pe, pv, patterns[p].field);
             }
         }
-        var zipRe = new RegExp("〒" + WS + "*([0-9０-９]" + WS + "*){3}[-‐－ー]" + WS + "*([0-9０-９]" + WS + "*){3}[0-9０-９]", "g");
+        var zipRe = new RegExp("〒" + WS + "*([0-9０-９○〇]" + WS + "*){3}[-‐－ー]" + WS + "*([0-9０-９○〇]" + WS + "*){3}[0-9０-９○〇]", "g");
         var zm;
         while ((zm = zipRe.exec(line)) !== null) {
             var zs = zm.index, ze = zm.index + zm[0].length;
@@ -304,8 +368,9 @@ var MeishiCore = (function () {
         for (var k = 0; k < PLACEHOLDERS.length; k++) {
             var ph = PLACEHOLDERS[k];
             if (ph.logo && values.__logo) continue;   // ロゴ有り → LOGO はそのまま
-            for (var t = 0; t < ph.texts.length; t++) {
-                var src = looseSource(ph.texts[t]);
+            var texts = ph.texts.slice(0).sort(function (a, b) { return b.length - a.length; });
+            for (var t = 0; t < texts.length; t++) {
+                var src = looseSource(texts[t]);
                 if (ph.wholeLine) src = "^" + WS + "*" + src + WS + "*$";
                 var pre = new RegExp(src, "g");
                 var mm;
@@ -317,9 +382,12 @@ var MeishiCore = (function () {
                         while (me > ms && /[ \t\u3000]/.test(line.charAt(me - 1))) me--;
                     }
                     if (!isFree(ms, me)) continue;
-                    var nv = val(ph.field);
+                    var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;
+                    var nv = val(field);
                     if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);
-                    add(ms, me, nv, ph.field);
+                    // 値が空のときは「  : ooooo@...」の「:」も一緒に消す
+                    if (nv === "") while (ms > 0 && /[ \t\u3000:：]/.test(line.charAt(ms - 1))) ms--;
+                    add(ms, me, nv, field, ph.usedAs);
                 }
             }
         }
@@ -415,6 +483,7 @@ var MeishiCore = (function () {
         INFO_FIELDS: INFO_FIELDS,
         prepareValues: prepareValues,
         hasLogoData: hasLogoData,
+        isLogoText: isLogoText,
         planEdits: planEdits,
         applyEditsToString: applyEditsToString,
         matchSpacing: matchSpacing,

@@ -57,21 +57,43 @@ var MeishiAI = (function () {
     // ----- LOGO 横のマーク -----
 
     // geometricBounds は [左, 上, 右, 下]（上の方が数字が大きい）
+    // 「LOGO の左右すぐ横にあり、LOGO と同じくらいの大きさで、LOGO に重なっていない」ものをマークとみなす
+    // （463 個のテンプレートで確認。背景の絵や大きな飾りは対象外になる）
     function isNextToLogo(b, logo) {
         var h = logo[1] - logo[3];
         var ih = b[1] - b[3], iw = b[2] - b[0];
-        if (ih <= 0 || iw <= 0 || ih > h * 3 || iw > h * 3) return false;   // LOGO に比べて大きすぎるものは背景
+        if (ih <= 0 || iw <= 0 || ih > h * 3 || iw > h * 3) return false;  // LOGO の3倍より大きいものは背景
         var vOverlap = Math.min(logo[1], b[1]) - Math.max(logo[3], b[3]);
-        var hOverlap = Math.min(logo[2], b[2]) - Math.max(logo[0], b[0]);
-        if (vOverlap >= Math.min(h, ih) * 0.5) {                            // 左右どちらかの横
-            var gap = (b[2] <= logo[0] + 1) ? logo[0] - b[2] : (b[0] >= logo[2] - 1) ? b[0] - logo[2] : 0;
-            return gap <= h * 1.5;
+        if (vOverlap < ih * 0.5) return false;                             // 半分以上が LOGO と同じ高さにある
+        var gap;
+        if (b[2] <= logo[0] + 1) gap = logo[0] - b[2];                     // 左側
+        else if (b[0] >= logo[2] - 1) gap = b[0] - logo[2];                // 右側
+        else return false;                                                  // LOGO に重なっている（背景）
+        return gap <= h;
+    }
+
+    function overlaps(a, b) {
+        return Math.min(a[2], b[2]) > Math.max(a[0], b[0]) && Math.min(a[1], b[1]) > Math.max(a[3], b[3]);
+    }
+
+    // 画像の範囲の一覧から、LOGO 横のマークだけを選ぶ（番号の一覧を返す）
+    // ・他の画像に重なっているもの（背景の絵の一部）は選ばない
+    // ・候補が2つ以上あるときは、どれがマークか分からないので何も選ばない（ambiguous に印を付ける）
+    function pickMarks(boundsList, logo, info) {
+        var out = [];
+        for (var i = 0; i < boundsList.length; i++) {
+            if (!isNextToLogo(boundsList[i], logo)) continue;
+            var alone = true;
+            for (var j = 0; j < boundsList.length; j++) {
+                if (j !== i && overlaps(boundsList[i], boundsList[j])) { alone = false; break; }
+            }
+            if (alone) out.push(i);
         }
-        if (hOverlap > 0) {                                                 // 真上・真下
-            var vgap = (b[3] >= logo[1] - 1) ? b[3] - logo[1] : (b[1] <= logo[3] + 1) ? logo[3] - b[1] : 0;
-            return vgap <= h;
+        if (out.length > 1) {
+            if (info) info.ambiguous = true;
+            return [];
         }
-        return false;
+        return out;
     }
 
     function contains(group, item) {
@@ -94,16 +116,21 @@ var MeishiAI = (function () {
             if (marks.length > 0) return marks;
         }
         var logo = logoFrame.geometricBounds;
-        var lists = [doc.rasterItems, doc.placedItems];
+        var lists = [doc.rasterItems, doc.placedItems], items = [], bounds = [];
         for (var l = 0; l < lists.length; l++) {
             for (var k = 0; k < lists[l].length; k++) {
                 var item = lists[l][k];
                 // マスクで切り抜かれている画像はマスクのグループごと消す
                 while (item.parent.typename === "GroupItem" && item.parent.clipped &&
                        !contains(item.parent, logoFrame)) item = item.parent;
-                if (isNextToLogo(item.geometricBounds, logo)) marks.push(item);
+                items.push(item);
+                bounds.push(item.geometricBounds);
             }
         }
+        var info = {};
+        var picked = pickMarks(bounds, logo, info);
+        if (info.ambiguous) marks.ambiguous = true;
+        for (var p = 0; p < picked.length; p++) marks.push(items[picked[p]]);
         return marks;
     }
 
@@ -112,8 +139,9 @@ var MeishiAI = (function () {
         var count = 0;
         for (var i = 0; i < doc.textFrames.length; i++) {
             var tf = doc.textFrames[i];
-            if (C.trim(tf.contents).replace(/[ \t\u3000]/g, "") !== "LOGO") continue;
+            if (!C.isLogoText(tf.contents)) continue;
             var marks = findLogoMarks(doc, tf);
+            if (marks.ambiguous) warnings.push("LOGO 横に画像が複数あり、マークか分からないため消していません");
             for (var m = 0; m < marks.length; m++) {
                 try {
                     var relock = unlockFor(marks[m]);
@@ -186,6 +214,7 @@ var MeishiAI = (function () {
         readTextFile: readTextFile,
         oneLine: oneLine,
         isNextToLogo: isNextToLogo,
+        pickMarks: pickMarks,
         editDocument: editDocument
     };
 })();

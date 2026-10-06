@@ -135,10 +135,41 @@ var LOGO_B = [228, -368, 291, -393];
 test("LOGO マーク: business008 の左隣の画像は消す対象", function () {
     assert.ok(AI.isNextToLogo([197, -369, 224, -393], LOGO_B));
 });
+test("LOGO マーク: 候補が複数・背景の絵に重なる画像は消さない", function () {
+    var mark = [197, -369, 224, -393];
+    assert.deepStrictEqual(AI.pickMarks([mark, [196, -443, 252, -499]], LOGO_B), [0]);   // マークだけ選ぶ
+    var info = {};
+    assert.deepStrictEqual(AI.pickMarks([mark, [295, -369, 320, -393]], LOGO_B, info), []); // 左右に2つ → 消さない
+    assert.ok(info.ambiguous);
+    assert.deepStrictEqual(AI.pickMarks([mark, [150, -300, 400, -450]], LOGO_B), []);       // 背景の絵に重なる
+});
+
 test("LOGO マーク: 遠いもの・大きい背景・QRコードは消さない", function () {
     assert.ok(!AI.isNextToLogo([196, -443, 252, -499], LOGO_B));   // QRコード
     assert.ok(!AI.isNextToLogo([0, 0, 260, -560], LOGO_B));         // 名刺全体の背景
     assert.ok(!AI.isNextToLogo([100, -368, 130, -393], LOGO_B));    // 離れている
+});
+
+// ---- 見出しだけのテキスト（E-mail の値が別テキストのデザイン 372 個） ----
+test("見出しだけ: 値が空なら消す、値があれば残す", function () {
+    assert.strictEqual(run("E-mail", { "メール": "" }).text, "");
+    assert.strictEqual(run("E-mail", { "メール": "a@b.jp" }).text, "E-mail");
+    assert.strictEqual(run("〒", { "郵便番号": "" }).text, "");
+    assert.strictEqual(run("  : ooooo@ oooo. com", { "メール": "a@b.jp" }).text, "  : a@b.jp");
+    assert.strictEqual(run("  : ooooo@ oooo. com", { "メール": "" }).text, "");
+});
+
+test("増やした仮の文字: ROGO・店長・2行の住所・縦書きの電話・株式会社の分割", function () {
+    var rec = { "会社名": "有限会社テスト", "ロゴデータ": "無し", "肩書": "部長", "住所1": "東京都港区1-2-3",
+                "住所2": "ABCビル2F", "TEL": "03-1111-2222", "FAX": "" };
+    assert.strictEqual(run("ROGO", rec).text, "有限会社テスト");
+    assert.strictEqual(run("店\u3000長", rec).text, "部\u3000長");
+    assert.strictEqual(run("○○○県○○市○○町\r00-00-0○○○○000号", rec).text, "東京都港区1-2-3\rABCビル2F");
+    assert.strictEqual(run("電\u3000話\u3000〇〇〇ー〇〇〇ー〇〇〇〇\rFAX\u3000〇〇〇ー〇〇〇ー〇〇〇〇", rec).text,
+                       "電\u3000話\u300003-1111-2222");
+    assert.strictEqual(run("株式会社\r〇〇商事", rec).text, "有限会社\rテスト");
+    assert.strictEqual(run("TEL 000-000-0000", rec).text, "TEL 03-1111-2222");
+    assert.strictEqual(run("Web デザイン", rec).text, "Web デザイン");   // 見出しに見えても値でなければ触らない
 });
 
 // ---- その他 ---------------------------------------------------------

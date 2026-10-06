@@ -35,11 +35,13 @@ data.forEach(function (t) {
     });
     out.push("", "差し込み先: " + (fields.length ? fields.join("、") : "なし"));
     t.lines.forEach(function (l) {
-        if (l.text.replace(/\s/g, "") !== "LOGO") return;
+        if (!C.isLogoText(l.text)) return;
         // 貼り込み画像（細かさ 2 以上）だけを対象にする（meishi_ai.jsx が消すのは画像だけ）
-        var marks = (t.images || []).filter(function (im) {
-            return im.px_per_pt >= 2 && AI.isNextToLogo(toAI(im.bbox), toAI(l.bbox));
-        });
+        var imgs = (t.images || []).filter(function (im) { return im.px_per_pt >= 2; });
+        var info = {};
+        var marks = AI.pickMarks(imgs.map(function (im) { return toAI(im.bbox); }), toAI(l.bbox), info)
+            .map(function (i) { return imgs[i]; });
+        if (info.ambiguous) out.push("LOGO 横に画像が複数あり、マークか分からないため消さない");
         out.push("LOGO 横の画像（ロゴ無しのとき消す）: " + marks.length + " 個" +
                  (marks.length ? "  " + JSON.stringify(marks.map(function (m) { return m.bbox; })) : ""));
     });
