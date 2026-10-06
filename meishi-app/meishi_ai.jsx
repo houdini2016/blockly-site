@@ -173,7 +173,7 @@ var MeishiAI = (function () {
     // お客さんの備考を、テンプレートの中心から 8cm 下に 7pt の MSゴシックで入れる（中央揃え）
     function addRemarks(doc, text, warnings) {
         text = C.trim(text || "");
-        if (text === "") return;
+        if (!C.remarkHasContent(text)) return;   // お店の案内文だけ（お客さんが何も書いていない）なら入れない
         var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect;   // [左, 上, 右, 下]
         var cx = (ab[0] + ab[2]) / 2, cy = (ab[1] + ab[3]) / 2;
 
@@ -232,6 +232,7 @@ var MeishiAI = (function () {
                             warnings.push("文字の書式が一部くずれたかもしれません: 「" + oneLine(expected) + "」");
                         }
                     }
+                    for (var nt = 0; nt < plan.notes.length; nt++) warnings.push(plan.notes[nt]);
                     for (var r = 0; r < plan.leftoverRemoved.length; r++) {
                         warnings.push("見つからない仮の文字が残っていたので行を消しました: 「" + oneLine(plan.leftoverRemoved[r]) + "」");
                     }

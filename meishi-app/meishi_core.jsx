@@ -123,14 +123,14 @@ var MeishiCore = (function () {
     }
 
     // "Tel" → /T[ \t　]*e[ \t　]*l/ のように、文字の間の空白を許す正規表現の文字列
-    function looseSource(text) {
+    function looseSource(text, sep) {
         var out = [];
         for (var i = 0; i < text.length; i++) {
             var c = text.charAt(i);
             if (/[ \t\u3000]/.test(c)) continue;
             out.push(c === "○" || c === "〇" ? "[○〇]" : escapeRegex(c));
         }
-        return out.join(WS + "*");
+        return out.join((sep || WS) + "*");
     }
 
     function inArray(arr, v) {
@@ -233,7 +233,11 @@ var MeishiCore = (function () {
         opts = opts || {};
         var values = prepareValues(rec);
         values.__logo = hasLogoData(rec);
-        var edits = [], used = [], leftoverRemoved = [], leftover = [];
+        var edits = [], used = [], leftoverRemoved = [], leftover = [], notes = [];
+
+        // 氏名が「鈴木」「　花子」のように2行に分かれているデザイン（縦書きなど）を先に置き換える。
+        // 置き換えた部分は行ごとの処理で触らないよう、印の文字（\u0001）で隠しておく
+        var masked = planMultiLineName(contents, values, edits, used, notes);
 
         // 行ごとに、置き換えるところと「行ごと消すか」を決める
         var lines = [];
@@ -241,7 +245,7 @@ var MeishiCore = (function () {
         while (lineStart <= contents.length) {
             var lineEnd = lineStart;
             while (lineEnd < contents.length && !LINE_BREAK.test(contents.charAt(lineEnd))) lineEnd++;
-            var line = contents.substring(lineStart, lineEnd);
+            var line = masked.substring(lineStart, lineEnd);
             var lineEdits = planLine(line, values, used);
 
             // テンプレートの文字のうち、置き換えなかった部分に仮の文字が残っているか
@@ -284,7 +288,48 @@ var MeishiCore = (function () {
             }
         }
         edits.sort(function (a, b) { return a.start - b.start; });
-        return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover };
+        return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover, notes: notes };
+    }
+
+    // 氏名の仮の文字が改行をまたいでいたら、お客さんの名前を「姓」と「名」に分けて入れる。
+    // 置き換えた範囲を印の文字で隠した contents を返す
+    function planMultiLineName(contents, values, edits, used, notes) {
+        if (!/[\r\n\u0003]/.test(contents)) return contents;
+        var rule = null;
+        for (var k = 0; k < PLACEHOLDERS.length; k++) if (PLACEHOLDERS[k].field === "氏名") { rule = PLACEHOLDERS[k]; break; }
+        var masked = contents;
+        var texts = rule.texts.slice(0).sort(function (a, b) { return b.length - a.length; });
+        for (var t = 0; t < texts.length; t++) {
+            var re = new RegExp(looseSource(texts[t], "[ \\t\u3000\\r\\n\u0003]"), "g");
+            var m;
+            while ((m = re.exec(masked)) !== null) {
+                var br = m[0].search(/[\r\n\u0003]/);
+                if (br < 0) continue;                                   // 1行に収まっているものは行ごとの処理に任せる
+                var ms = m.index, me = m.index + m[0].length;
+                var p1e = ms + br;                                       // 1行目の終わり
+                while (p1e > ms && /[ \t\u3000]/.test(contents.charAt(p1e - 1))) p1e--;
+                var p2s = ms + br;                                       // 2行目の始まり（字下げのあと）
+                while (p2s < me && /[ \t\u3000\r\n\u0003]/.test(contents.charAt(p2s))) p2s++;
+
+                var name = values["氏名"] || "";
+                var parts = name.match(/^([^ \t\u3000]+)[ \t\u3000]+(.+)$/);
+                if (name === "") {
+                    edits.push({ start: ms, end: me, text: "", field: "氏名" });
+                } else if (parts) {
+                    edits.push({ start: ms, end: p1e, text: matchSpacing(contents.substring(ms, p1e), parts[1]), field: "氏名" });
+                    edits.push({ start: p2s, end: me, text: matchSpacing(contents.substring(p2s, me), parts[2]), field: "氏名" });
+                } else {
+                    // 姓と名の間に空白がなく分けられない → 1行目にまとめて、2行目は消す
+                    edits.push({ start: ms, end: p1e, text: matchSpacing(contents.substring(ms, p1e), name), field: "氏名" });
+                    edits.push({ start: p1e, end: me, text: "", field: "氏名" });
+                    notes.push("氏名を姓と名に分けられなかったので1行で入れました: " + name);
+                }
+                if (!inArray(used, "氏名")) used.push("氏名");
+                masked = masked.substring(0, ms) +
+                         masked.substring(ms, me).replace(/[^\r\n\u0003]/g, "\u0001") + masked.substring(me);
+            }
+        }
+        return masked;
     }
 
     // コロンのない見出しのときは、後ろが本当に電話番号などかを確かめる（「Web デザイン」などを避ける）
@@ -476,6 +521,29 @@ var MeishiCore = (function () {
         return false;
     }
 
+    // ===== 備考 =========================================================
+    //  備考欄にお店が最初から入れている案内文。これ以外に何も書かれていなければ流し込まない
+    var REMARK_BOILERPLATE = [
+        "【不明点など確認時のご連絡先 電話番号やアドレス】",
+        "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。"
+    ];
+
+    // お客さんが何か書いていれば true（案内文・区切り線・空白だけなら false）
+    function remarkHasContent(text) {
+        var lines = String(text || "").split(/\r\n|\r|\n/);
+        for (var i = 0; i < lines.length; i++) {
+            var t = lines[i].replace(/[ \t\u3000]/g, "");
+            if (t === "") continue;
+            if (/^[-‐－ー―─━_＿~〜～=＝]+$/.test(t)) continue;      // 区切り線
+            var isBoilerplate = false;
+            for (var b = 0; b < REMARK_BOILERPLATE.length; b++) {
+                if (t === REMARK_BOILERPLATE[b].replace(/[ \t\u3000]/g, "")) isBoilerplate = true;
+            }
+            if (!isBoilerplate) return true;
+        }
+        return false;
+    }
+
     // ===== 注文通知アプリからの指示ファイル ================================
     //  文字コードの違いで化けないよう、英数字だけで書かれている。
     //    1行目: MEISHIJOB1
@@ -544,6 +612,7 @@ var MeishiCore = (function () {
         trim: trim,
         parseCSV: parseCSV,
         parseJob: parseJob,
+        remarkHasContent: remarkHasContent,
         toKanjiNumber: toKanjiNumber,
         rowsToRecords: rowsToRecords,
         INFO_FIELDS: INFO_FIELDS,

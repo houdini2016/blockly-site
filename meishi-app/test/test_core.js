@@ -210,6 +210,28 @@ test("漢数字: 仮の文字が〇なら数字を漢数字にする（○の普
     assert.strictEqual(run("○○○県○○市○○町00-00-0", rec).text, "東京都港区1-2-3");
 });
 
+// ---- 2行に分かれた氏名（wa_yoko001 など） ---------------------------
+test("2行の氏名: 「鈴木」「　花子」→ 姓と名に分けて入れる（字下げは残す）", function () {
+    assert.strictEqual(run("鈴木\r\u3000花子", { "氏名": "山田 太郎" }).text, "山田\r\u3000太郎");
+    assert.strictEqual(run("鈴\u3000木\r\u3000花\u3000子", { "氏名": "山田\u3000太郎" }).text, "山\u3000田\r\u3000太\u3000郎");
+    var plan = C.planEdits("鈴木\r\u3000花子", { "氏名": "山田太郎" });
+    assert.strictEqual(C.applyEditsToString("鈴木\r\u3000花子", plan.edits), "山田太郎");   // 分けられない → 1行
+    assert.strictEqual(plan.notes.length, 1);
+    assert.strictEqual(run("取締役社長\r鈴木\r\u3000花子", { "氏名": "山田 太郎", "肩書": "部長" }).text, "部長\r山田\r\u3000太郎");
+    assert.deepStrictEqual(C.unusedFields({ "氏名": "山田 太郎" }, C.planEdits("鈴木\r\u3000花子", { "氏名": "山田 太郎" }).used), []);
+});
+
+// ---- 備考の案内文 ---------------------------------------------------
+test("備考: お店の案内文だけなら入れない、ほかに書いてあれば入れる", function () {
+    var bp = "【不明点など確認時のご連絡先 電話番号やアドレス】\n\n★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n\n" +
+             "---------------------------------------------------------------------";
+    assert.ok(!C.remarkHasContent(bp));
+    assert.ok(!C.remarkHasContent(bp.replace(" ", "\u3000") + "\n"));
+    assert.ok(!C.remarkHasContent(""));
+    assert.ok(C.remarkHasContent(bp + "\n裏面は無しでお願いします"));
+    assert.ok(C.remarkHasContent("【不明点など確認時のご連絡先 電話番号やアドレス】090-1111-2222"));
+});
+
 // ---- その他 ---------------------------------------------------------
 test("部署は肩書の前に付く", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });

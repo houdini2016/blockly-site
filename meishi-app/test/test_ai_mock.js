@@ -174,5 +174,16 @@ test("備考: 中心から8cm下に 7pt・MSゴシック・中央揃えで入れ
     assert.ok(w.join("\n").indexOf("備考を名刺の下") >= 0);
 });
 
+test("備考: お店の案内文だけなら何も入れない", function () {
+    var doc = makeDoc([["鈴\u3000木\u3000花\u3000子", [0, 0, 10, -10]]]);
+    var added = 0;
+    doc.layers = { add: function () { added++; return { textFrames: { add: function () { return {}; } } }; } };
+    var w = [];
+    AI.editDocument(doc, { "氏名": "山田 太郎", "備考": "【不明点など確認時のご連絡先 電話番号やアドレス】\n\n" +
+        "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n\n------------" }, w);
+    assert.strictEqual(added, 0);
+    assert.ok(w.join("\n").indexOf("備考") < 0);
+});
+
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
 process.exit(failures === 0 ? 0 : 1);
