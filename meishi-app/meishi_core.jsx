@@ -299,8 +299,10 @@ var MeishiCore = (function () {
             if (!L.remove) {
                 for (var k = 0; k < L.edits.length; k++) {
                     if (L.edits[k].field === "(そのまま)") continue;   // ロゴ有りで残す部分は書き換えない
-                    edits.push({ start: L.edits[k].start + L.start, end: L.edits[k].end + L.start,
-                                 text: L.edits[k].text, field: L.edits[k].field });
+                    var ed = { start: L.edits[k].start + L.start, end: L.edits[k].end + L.start,
+                               text: L.edits[k].text, field: L.edits[k].field };
+                    if (L.edits[k].hasOwnProperty("spacingFrom")) ed.spacingFrom = L.edits[k].spacingFrom + L.start;
+                    edits.push(ed);
                 }
                 continue;
             }
@@ -433,6 +435,8 @@ var MeishiCore = (function () {
                 if (found[i].colon && found[i].field !== "URL") {
                     // 「Tel : 」→「Tel：」（コロンの前後の空白をなくし、全角のコロンにする。URL はそのまま）
                     add(found[i].labelEnd, vEnd, COLON + newValue, found[i].field);
+                    // 見出しの最初の文字の位置（Illustrator で文字の間隔をそろえ直すときの目印）
+                    edits[edits.length - 1].spacingFrom = found[i].labelStart;
                 } else {
                     add(found[i].valueStart, vEnd, newValue, found[i].field);
                 }

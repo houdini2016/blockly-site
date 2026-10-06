@@ -4,6 +4,7 @@ var assert = require("assert");
 var fs = require("fs");
 var path = require("path");
 global.MeishiCore = require(path.join(__dirname, "..", "meishi_core.jsx"));
+var C2 = global.MeishiCore;
 var AI = eval(fs.readFileSync(path.join(__dirname, "..", "meishi_ai.jsx"), "utf8").replace(/^﻿/, "") + "; MeishiAI");
 
 // ---- Illustrator の TextFrame / TextRange をまねた最小限のもの ----
@@ -346,6 +347,29 @@ test("コロン: 1行目の見出しに、別テキストの値を合わせな�
                        ["  : ooooo@oooo.com", [150, -80, 930, -130]]]);
     AI.editDocument(doc, { "携帯": "090-1", "メール": "a@b.jp" }, []);
     assert.strictEqual(doc.textFrames[1].contents, "  : a@b.jp");                // 2行目の高さなので1行目の E-mail とはつながない
+});
+
+test("コロン: 詰めてあった文字間隔（カーニング・トラッキング）を「E」と同じに戻す", function () {
+    // business006 など：「E-mail  : ooooo」の空白にマイナスの間隔を付けてコロンを寄せている
+    var before = "Mobile: 000-0000-0000\rE-mail  : ooooo@oooo.com";
+    var plan = C2.planEdits(before, { "携帯": "090-9085-8613", "メール": "xxx3r.m.k0211@gmail.com" });
+    var after = C2.applyEditsToString(before, plan.edits);
+    assert.strictEqual(after, "Mobile：090-9085-8613\rE-mail：xxx3r.m.k0211@gmail.com");
+    // 置き換えたあとの文字（間隔の情報つき）
+    var chars = [];
+    for (var i = 0; i < after.length; i++) chars.push({ c: after.charAt(i), kerning: -600, characterAttributes: { tracking: -300 } });
+    var eIndex = after.indexOf("E-mail");
+    chars[0].characterAttributes.tracking = 20;          // 「M」の間隔
+    chars[eIndex].characterAttributes.tracking = 10;     // 「E」の間隔
+    AI.fixSpacing({ characters: chars }, plan.edits);
+    var colon = after.indexOf("：", eIndex);
+    for (var j = colon - 1; j < after.length; j++) {      // 「l」から行の最後まで
+        assert.strictEqual(chars[j].kerning, 0, "kerning " + j);
+        assert.strictEqual(chars[j].characterAttributes.tracking, 10, "tracking " + j);
+    }
+    var mColon = after.indexOf("：");
+    assert.strictEqual(chars[mColon].characterAttributes.tracking, 20);   // Mobile の行は「M」に合わせる
+    assert.strictEqual(chars[eIndex + 1].kerning, -600);                 // 見出しの途中は触らない
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");

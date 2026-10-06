@@ -42,6 +42,32 @@ var MeishiAI = (function () {
         else r.contents = text;
     }
 
+    // 「E-mail  : ooooo」の空白にマイナスの文字間隔（カーニング・トラッキング）を付けて
+    // コロンを見出しに寄せているデザインがある。空白を「：値」に置き換えると、その詰めが残って
+    // 「：」が見出しに重なるので、置き換えた文字の間隔を見出しの最初の文字と同じに戻す。
+    function resetSpacing(tf, baseIndex, start, len) {
+        var base = 0;
+        try { base = tf.characters[baseIndex].characterAttributes.tracking; } catch (e0) { base = 0; }
+        for (var i = start - 1; i < start + len; i++) {
+            if (i < 0) continue;
+            try {
+                var ch = tf.characters[i];
+                ch.characterAttributes.tracking = base;
+                try { ch.kerning = 0; } catch (e1) { /* カーニングを変えられないときはそのまま */ }
+            } catch (e2) { /* その文字は飛ばす */ }
+        }
+    }
+
+    // edits を当てはめたあとの、それぞれの置き換え部分の始まりの位置で resetSpacing する
+    function fixSpacing(tf, edits) {
+        var shift = 0;
+        for (var e = 0; e < edits.length; e++) {
+            var ed = edits[e];
+            if (ed.hasOwnProperty("spacingFrom")) resetSpacing(tf, ed.spacingFrom + shift, ed.start + shift, ed.text.length);
+            shift += ed.text.length - (ed.end - ed.start);
+        }
+    }
+
     // 書き換えのじゃまになるロックを一時的に外す
     function unlockFor(item) {
         var restore = [];
@@ -405,6 +431,7 @@ var MeishiAI = (function () {
                             tf.contents = expected;
                             warnings.push("文字の書式が一部くずれたかもしれません: 「" + oneLine(expected) + "」");
                         }
+                        fixSpacing(tf, plan.edits);   // 「：」が見出しに重ならないよう文字の間隔をそろえる
                     }
                     for (var nt = 0; nt < plan.notes.length; nt++) warnings.push(plan.notes[nt]);
                     for (var r = 0; r < plan.leftoverRemoved.length; r++) {
@@ -494,6 +521,7 @@ var MeishiAI = (function () {
         addLabelAbove: addLabelAbove,
         fallbackLine: fallbackLine,
         mergeSplitLabels: mergeSplitLabels,
+        fixSpacing: fixSpacing,
         REMARK_OFFSET: REMARK_OFFSET,
         FALLBACK_OFFSET: FALLBACK_OFFSET,
         editDocument: editDocument
