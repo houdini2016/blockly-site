@@ -5,6 +5,11 @@
 var fs = require("fs");
 var path = require("path");
 var C = require(path.join(__dirname, "..", "meishi_core.jsx"));
+global.MeishiCore = C;
+var AI = eval(fs.readFileSync(path.join(__dirname, "..", "meishi_ai.jsx"), "utf8").replace(/^\uFEFF/, "") + "; MeishiAI");
+
+// PDF の座標 [左, 上, 右, 下]（下が大きい）→ Illustrator の座標（上が大きい）
+function toAI(b) { return [b[0], -b[1], b[2], -b[3]]; }
 
 var data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 
@@ -28,7 +33,17 @@ data.forEach(function (t) {
         out.push("- " + mark + " `" + l.text + "`" + (plan.edits.length ? " → `" + after + "`" : "") +
                  "  (" + l.font + " " + l.size + "pt)");
     });
-    out.push("", "差し込み先: " + (fields.length ? fields.join("、") : "なし"), "");
+    out.push("", "差し込み先: " + (fields.length ? fields.join("、") : "なし"));
+    t.lines.forEach(function (l) {
+        if (l.text.replace(/\s/g, "") !== "LOGO") return;
+        // 貼り込み画像（細かさ 2 以上）だけを対象にする（meishi_ai.jsx が消すのは画像だけ）
+        var marks = (t.images || []).filter(function (im) {
+            return im.px_per_pt >= 2 && AI.isNextToLogo(toAI(im.bbox), toAI(l.bbox));
+        });
+        out.push("LOGO 横の画像（ロゴ無しのとき消す）: " + marks.length + " 個" +
+                 (marks.length ? "  " + JSON.stringify(marks.map(function (m) { return m.bbox; })) : ""));
+    });
+    out.push("");
 });
 out.push("---", "⚠ の数: " + problems + "（仮の文字が置き換わらずに残る行）");
 console.log(out.join("\n"));

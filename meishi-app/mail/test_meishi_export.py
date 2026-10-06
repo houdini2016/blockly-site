@@ -38,13 +38,13 @@ RAKUTEN_ITEMS = [
 
 class CardFromOrderTests(unittest.TestCase):
     def rakuten(self):
-        order = {"order_id": "297406-20261006-0833446491", "mall": "楽天",
+        order = {"order_id": "297406-20261006-0833446491", "mall": "楽天", "customer": "山田 太郎",
                  "product": "お試し名刺40枚", "detail": RAKUTEN_DETAIL}
         return M.card_from_order(order, RAKUTEN_ITEMS)
 
     def test_rakuten_fields(self):
         c = self.rakuten()
-        self.assertEqual(c["デザイン番号"], "business008")   # 例示の business001 ではない
+        self.assertEqual(c["注文者"], "山田 太郎")
         self.assertEqual(c["会社名"], "株式会社サンプル")
         self.assertEqual((c["部署"], c["肩書"], c["氏名"]), ("営業部", "部長", "山田 太郎"))
         self.assertEqual(c["氏名英字"], "Taro Yamada")      # ローマ字のふりがなは英字氏名へ
@@ -59,22 +59,25 @@ class CardFromOrderTests(unittest.TestCase):
         self.assertEqual(c["備考"], "校正は不要です")
         self.assertEqual(c["確認事項"], "")
 
-    def test_repeat_order_without_design_number(self):
-        detail = "作成するデザインの商品番号（例：business001など） ※40枚で作成します。以前と同じ"
-        c = M.card_from_order({"order_id": "1", "detail": detail},
-                              [{"label": "氏名", "value": "山田 太郎", "group": None}])
-        self.assertEqual(c["デザイン番号"], "")
-        self.assertIn("以前と同じ", c["確認事項"])
-
-    def test_design_number_from_product_name(self):
-        c = M.card_from_order({"order_id": "artcode-1", "mall": "Yahoo!",
-                               "product": "名刺 100枚 abstract001", "detail": ""},
+    def test_yahoo_name_with_ruby_and_no_orderer(self):
+        c = M.card_from_order({"order_id": "artcode-1", "mall": "Yahoo!", "customer": "佐藤花子", "detail": ""},
                               [{"label": "氏名", "value": "佐藤花子（さとうはなこ）", "group": None}])
-        self.assertEqual(c["デザイン番号"], "abstract001")
         self.assertEqual((c["氏名"], c["ふりがな"]), ("佐藤花子", "さとうはなこ"))
+        self.assertEqual(c["注文者"], "")   # Yahoo! は注文者名を使わない
+
+    def test_output_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            card = {"注文番号": "297406-20261006-0833446491", "氏名": "山田 太郎", "注文者": "山田 花子"}
+            p = M.output_path(card, d)
+            self.assertEqual(os.path.basename(p), "297406-20261006-0833446491_山田太郎_山田花子.ai")
+            open(p, "w").close()
+            self.assertTrue(M.output_path(card, d).endswith("_山田花子_2.ai"))   # 同じ名前があれば _2
+            # 氏名がなければ会社名、注文者がなければ付けない（Yahoo!）
+            self.assertEqual(os.path.basename(M.output_path({"注文番号": "artcode-1", "会社名": "株式会社 A/B"}, d)),
+                             "artcode-1_株式会社AB.ai")
 
     def test_address_without_city_split(self):
-        c = M.card_from_order({"order_id": "1", "detail": "business008"}, [
+        c = M.card_from_order({"order_id": "1", "detail": ""}, [
             {"label": "氏名", "value": "A", "group": None},
             {"label": "住所", "group": "address",
              "value": "〒231-0001\n神奈川県横浜市中区新港1-1-1\n0451112222"}])
@@ -82,25 +85,16 @@ class CardFromOrderTests(unittest.TestCase):
         self.assertEqual(c["TEL"], "0451112222")
         self.assertIn("見出しのない電話番号", c["確認事項"])
 
-    def test_write_csv_and_settings(self):
+    def test_write_csv(self):
         with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "out.csv")
-            M.write_csv(path, [self.rakuten()])
+            path = os.path.join(d, "job", "meishi_job.csv")
+            card = dict(self.rakuten(), テンプレート="/T/business008.ai", 保存先="/O/x.ai")
+            M.write_csv(path, [card])
             with open(path, encoding="utf-8-sig", newline="") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["氏名"], "山田 太郎")
+            self.assertEqual(rows[0]["テンプレート"], "/T/business008.ai")
             self.assertEqual(list(rows[0].keys()), M.CSV_COLUMNS)
-
-            settings = os.path.join(d, "s", "settings.txt")
-            os.makedirs(os.path.dirname(settings))
-            with open(settings, "w", encoding="utf-8") as f:
-                f.write("templates=/T\ncsv=/old.csv\n")
-            M.set_csv_for_illustrator(path, settings)
-            with open(settings, encoding="utf-8") as f:
-                text = f.read()
-            self.assertIn("templates=/T\n", text)
-            self.assertIn("csv=" + path + "\n", text)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -126,6 +126,21 @@ test("名刺に入れない項目（備考・自由行など）は差し込み�
     assert.deepStrictEqual(C.unusedFields(rec, plan.used), []);
 });
 
+// ---- LOGO 横のマーク（meishi_ai.jsx） --------------------------------
+global.MeishiCore = C;
+var fs = require("fs");
+var AI = eval(fs.readFileSync(path.join(__dirname, "..", "meishi_ai.jsx"), "utf8").replace(/^\uFEFF/, "") + "; MeishiAI");
+// Illustrator の座標は [左, 上, 右, 下]（上が大きい）。business008 の実寸から
+var LOGO_B = [228, -368, 291, -393];
+test("LOGO マーク: business008 の左隣の画像は消す対象", function () {
+    assert.ok(AI.isNextToLogo([197, -369, 224, -393], LOGO_B));
+});
+test("LOGO マーク: 遠いもの・大きい背景・QRコードは消さない", function () {
+    assert.ok(!AI.isNextToLogo([196, -443, 252, -499], LOGO_B));   // QRコード
+    assert.ok(!AI.isNextToLogo([0, 0, 260, -560], LOGO_B));         // 名刺全体の背景
+    assert.ok(!AI.isNextToLogo([100, -368, 130, -393], LOGO_B));    // 離れている
+});
+
 // ---- その他 ---------------------------------------------------------
 test("部署は肩書の前に付く", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });

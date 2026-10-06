@@ -1,8 +1,10 @@
 ﻿// =====================================================================
-//  名刺自動作成（Adobe Illustrator 用スクリプト）
+//  名刺自動作成・CSV一括版（Adobe Illustrator 用スクリプト）
+//  ※ふだんは注文通知アプリの［名刺を作成］ボタン（meishi_job.jsx）を使います。
+//    こちらは、デザイン番号入りのCSVからまとめて作りたいとき用です。
 //
 //  使い方：Illustrator のメニュー［ファイル］→［スクリプト］→［その他のスクリプト...］
-//          でこのファイルを選びます。（meishi_core.jsx を同じフォルダに置いてください）
+//          でこのファイルを選びます。（meishi_core.jsx・meishi_ai.jsx を同じフォルダに置いてください）
 //
 //  1. 注文CSV・テンプレートフォルダ・保存先フォルダを選ぶ
 //  2. CSVの1行ごとに、デザイン番号と同じ名前の .ai を開く
@@ -12,6 +14,7 @@
 
 #target illustrator
 #include "meishi_core.jsx"
+#include "meishi_ai.jsx"
 
 (function () {
     var C = MeishiCore;
@@ -91,19 +94,7 @@
         return { csv: csv.text, templates: tpl.text, output: out.text, overwrite: ow.value ? "1" : "0" };
     }
 
-    // ----- ファイル読み込み -----
-
-    function readTextFile(file) {
-        file.encoding = "BINARY";
-        file.open("r");
-        var bytes = file.read();
-        file.close();
-        file.encoding = C.detectEncoding(bytes);
-        file.open("r");
-        var text = file.read();
-        file.close();
-        return text;
-    }
+    // ----- ファイル -----
 
     // テンプレートフォルダ（中のフォルダも含む）の .ai を「デザイン番号 → ファイル」の表にする
     function indexTemplates(folder, index, dupes) {
@@ -129,93 +120,6 @@
         }
     }
 
-    // ----- テキストの書き換え -----
-
-    // テキストフレームの start〜end 文字目を text に置き換える（最初の文字の書式を引き継ぐ）
-    function replaceRange(tf, start, end, text) {
-        var len = end - start;
-        if (len <= 0) return;
-        var r = tf.characters[start];
-        try {
-            if (len > 1) r.length = len;
-        } catch (e) {
-            // length が変えられない場合は1文字ずつ消す
-            for (var i = end - 1; i > start; i--) tf.characters[i].remove();
-            r = tf.characters[start];
-        }
-        if (text === "") r.remove();
-        else r.contents = text;
-    }
-
-    // 書き換えのじゃまになるロックを一時的に外す
-    function unlockFor(tf) {
-        var restore = [];
-        var item = tf;
-        while (item && item.typename !== "Document") {
-            if (item.typename === "Layer") {
-                if (item.locked) { item.locked = false; restore.push(item); }
-            } else if (item.locked) { item.locked = false; restore.push(item); }
-            item = item.parent;
-        }
-        return function () {
-            for (var i = 0; i < restore.length; i++) restore[i].locked = true;
-        };
-    }
-
-    function editDocument(doc, rec, warnings) {
-        var used = [];
-        var frames = [];
-        for (var i = 0; i < doc.textFrames.length; i++) frames.push(doc.textFrames[i]);
-
-        var values = C.prepareValues(rec);
-        for (var f = 0; f < frames.length; f++) {
-            var tf = frames[f];
-            var relock = unlockFor(tf);
-            try {
-                // テキストに項目名の名前（例:「氏名」）が付いていれば、中身を丸ごと置き換える
-                if (tf.name && C.FIELD_ALIASES.hasOwnProperty(tf.name)) {
-                    if (tf.contents !== "") replaceRange(tf, 0, tf.contents.length, values[tf.name] || "");
-                    used.push(tf.name);
-                } else {
-                    var before = tf.contents;
-                    var plan = C.planEdits(before, rec);
-                    for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);
-                    if (plan.edits.length > 0) {
-                        var expected = C.applyEditsToString(before, plan.edits);
-                        for (var e = plan.edits.length - 1; e >= 0; e--) {
-                            replaceRange(tf, plan.edits[e].start, plan.edits[e].end, plan.edits[e].text);
-                        }
-                        if (tf.contents !== expected) {
-                            // 念のための安全策：うまく置き換わらなかったら中身ごと入れ直す
-                            tf.contents = expected;
-                            warnings.push("文字の書式が一部くずれたかもしれません: 「" + oneLine(expected) + "」");
-                        }
-                    }
-                }
-                if (C.hasLeftover(tf.contents)) {
-                    warnings.push("仮の文字が残っています: 「" + oneLine(tf.contents) + "」");
-                }
-            } catch (err) {
-                warnings.push("テキストを書き換えられませんでした（" + err.message + "）: 「" + oneLine(tf.contents) + "」");
-            }
-            relock();
-        }
-        var unused = C.unusedFields(rec, used);
-        if (unused.length > 0) {
-            warnings.push("テンプレートに差し込み先がない項目: " + unused.join("、"));
-        }
-        // 名刺には入れていないが、目で確認してほしい情報
-        if (C.hasLogoData(rec)) warnings.push("ロゴデータ有り: LOGO の位置にロゴを配置してください");
-        if (rec["自由行"]) warnings.push("自由記入（行目）: " + oneLine(rec["自由行"]));
-        if (rec["備考"]) warnings.push("備考: " + oneLine(rec["備考"]));
-        if (rec["確認事項"]) warnings.push(rec["確認事項"]);
-    }
-
-    function oneLine(s) {
-        s = String(s).replace(/[\r\n\u0003]+/g, " / ");
-        return s.length > 40 ? s.substring(0, 40) + "…" : s;
-    }
-
     // ----- 1件分の処理 -----
 
     function processRecord(rec, index, outFolder, overwrite) {
@@ -231,7 +135,7 @@
 
         var doc = app.open(tplFile);
         try {
-            editDocument(doc, rec, result.warnings);
+            MeishiAI.editDocument(doc, rec, result.warnings);
             var outFile = uniqueFile(outFolder, C.makeFileName(rec), overwrite);
             var opts = new IllustratorSaveOptions();
             opts.pdfCompatible = true;
@@ -258,7 +162,7 @@
         if (!tplFolder.exists) { alert("テンプレートフォルダが見つかりません:\n" + s.templates); return; }
         if (!outFolder.exists && !outFolder.create()) { alert("保存先フォルダを作れません:\n" + s.output); return; }
 
-        var parsed = C.rowsToRecords(C.parseCSV(readTextFile(csvFile)));
+        var parsed = C.rowsToRecords(C.parseCSV(MeishiAI.readTextFile(csvFile)));
         var records = parsed.records;
         if (records.length === 0) { alert("CSVに注文が1件もありません。1行目は見出し（注文番号,デザイン番号,氏名...）にしてください。"); return; }
 

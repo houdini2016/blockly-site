@@ -1,19 +1,29 @@
-"""注文通知アプリの注文データから、名刺作成用のCSVを作る部品。
+"""注文通知アプリの注文データから、名刺を作るための指示を作る部品。
 
 注文通知アプリ（chumon_notifier.py）が整理した注文詳細（_parse_detail_items の結果）を
 名刺の項目（氏名・肩書・住所・TEL…）に振り分け、Illustrator スクリプト
-（meishi_auto.jsx）が読める CSV に書き出します。
+（meishi_job.jsx）が読む CSV（どのテンプレートに流し込み、どこへ保存するか）を書き出します。
 
 この部品はメールにもインターネットにも接続しません（受け取った文字を整理するだけ）。
 """
 import csv
+import json
 import os
 import re
 import subprocess
 
-# meishi_auto.jsx が読む列（順番どおりに書き出す）
+# 作った名刺の保存先
+OUTPUT_DIR = os.path.expanduser("~/Library/CloudStorage/Dropbox/1名刺表札作業用/1_新規ai")
+
+# meishi_job.jsx が読む指示ファイル（Illustrator の Folder.userData の中）
+JOB_FILE = os.path.expanduser("~/Library/Application Support/meishi_job.csv")
+
+# 前回テンプレートを選んだフォルダを覚えておくファイル
+PREFS_FILE = os.path.expanduser("~/.chumon_notifier_meishi.json")
+
+# 書き出す列（順番どおり）
 CSV_COLUMNS = [
-    "注文番号", "モール", "デザイン番号",
+    "注文番号", "モール", "注文者", "テンプレート", "保存先",
     "会社名", "部署", "肩書", "氏名", "ふりがな", "氏名英字", "肩書英字",
     "郵便番号", "住所1", "住所2", "TEL", "FAX", "携帯", "メール", "URL",
     "ロゴデータ", "自由行", "備考", "確認事項",
@@ -39,8 +49,6 @@ _CONTACT = [
     ("URL", re.compile(r"^(?:WEB|URL|HP)" + _COLON + r"\s*(.+)", re.I)),
 ]
 _PHONE = re.compile(r"^\+?[\d\-()（） ]{10,16}$")
-# デザイン番号の形（business008, abstract001 など）。後ろに「など」が付くものは例示なので除く
-_DESIGN = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]+[-_]?\d{3})(?![0-9])(?!など)")
 
 
 def _add_note(card, text):
@@ -102,32 +110,6 @@ def _option_value(line):
     return min(tails, key=len) if tails else ""
 
 
-def _find_design(card, detail, product):
-    # ① 「作成するデザインの商品番号」の欄
-    for line in detail.split("\n"):
-        if "デザイン" in line and "番号" in line:
-            value = _option_value(line)
-            found = _DESIGN.findall(value) or _DESIGN.findall(line)
-            if found:
-                card["デザイン番号"] = found[-1]
-                return
-            if value:
-                _add_note(card, f"デザイン番号の欄: 「{value}」")
-                return
-    # ② 商品名・注文詳細の中のデザイン番号らしき文字
-    found = []
-    for token in _DESIGN.findall((product or "") + "\n" + detail):
-        if token.lower() not in [f.lower() for f in found]:
-            found.append(token)
-    if len(found) == 1:
-        card["デザイン番号"] = found[0]
-    elif found:
-        card["デザイン番号"] = found[0]
-        _add_note(card, "デザイン番号の候補が複数あります: " + "、".join(found))
-    else:
-        _add_note(card, "デザイン番号が見つかりません")
-
-
 def card_from_order(order, items):
     """1件の注文を名刺の項目に振り分ける。
 
@@ -137,6 +119,8 @@ def card_from_order(order, items):
     card = {c: "" for c in CSV_COLUMNS}
     card["注文番号"] = order.get("order_id", "")
     card["モール"] = order.get("mall", "")
+    if card["モール"] != "Yahoo!":   # Yahoo! の注文メールには注文者名がない
+        card["注文者"] = order.get("customer", "")
     free_lines, notes = [], []
 
     for it in items:
@@ -171,13 +155,33 @@ def card_from_order(order, items):
         card["備考"] = "\n".join(filter(None, [card["備考"]] + notes))
     if not card["氏名"]:
         _add_note(card, "氏名が見つかりません")
-
-    _find_design(card, order.get("detail", ""), order.get("product", ""))
     return card
 
 
+def _clean_name(s):
+    """ファイル名に使えない文字と空白を取り除く。"""
+    return re.sub(r"[\\/:*?\"<>|\s\u3000]+", "", s or "")
+
+
+def output_path(card, folder=OUTPUT_DIR):
+    """保存先: 注文番号_名刺の氏名（なければ会社名）_注文者氏名.ai
+
+    Yahoo! は注文者名がないので「注文番号_氏名.ai」。同じ名前があれば _2, _3 … を付ける。
+    """
+    parts = [_clean_name(card.get("注文番号")) or "注文番号なし",
+             _clean_name(card.get("氏名")) or _clean_name(card.get("会社名")) or "名前なし"]
+    if _clean_name(card.get("注文者")):
+        parts.append(_clean_name(card["注文者"]))
+    base = os.path.join(folder, "_".join(parts))
+    path, n = base + ".ai", 2
+    while os.path.exists(path):
+        path, n = f"{base}_{n}.ai", n + 1
+    return path
+
+
 def write_csv(path, cards):
-    """Illustrator スクリプト用の CSV を書き出す（Excel でも文字化けしない UTF-8 BOM 付き）。"""
+    """CSV を書き出す（Excel でも文字化けしない UTF-8 BOM 付き）。"""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=CSV_COLUMNS, lineterminator="\r\n")
         w.writeheader()
@@ -185,32 +189,28 @@ def write_csv(path, cards):
             w.writerow({c: card.get(c, "") for c in CSV_COLUMNS})
 
 
+def load_prefs():
+    try:
+        with open(PREFS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_prefs(prefs):
+    try:
+        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
 # ----------------------------------------------------------------------
 #  Illustrator を呼び出す（Mac 用）
 # ----------------------------------------------------------------------
 
-# meishi_auto.jsx が前回の設定を保存している場所（Illustrator の Folder.userData）
-ILLUSTRATOR_SETTINGS = os.path.expanduser("~/Library/Application Support/meishi_auto_settings.txt")
-
-
-def set_csv_for_illustrator(csv_path, settings_path=ILLUSTRATOR_SETTINGS):
-    """meishi_auto.jsx の画面に、今作った CSV が最初から入っているようにする。"""
-    settings = {}
-    if os.path.exists(settings_path):
-        with open(settings_path, encoding="utf-8") as f:
-            for line in f:
-                if "=" in line:
-                    k, v = line.rstrip("\r\n").split("=", 1)
-                    settings[k] = v
-    settings["csv"] = csv_path
-    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
-    with open(settings_path, "w", encoding="utf-8") as f:
-        for k, v in settings.items():
-            f.write(f"{k}={v}\n")
-
-
 def run_illustrator_script(jsx_path):
-    """Illustrator を前面に出して meishi_auto.jsx を実行する（終わるのは待たない）。"""
+    """Illustrator を前面に出して jsx を実行する（終わるのは待たない）。"""
     jsx_path = os.path.abspath(jsx_path).replace("\\", "\\\\").replace('"', '\\"')
     script = (
         'tell application id "com.adobe.illustrator"\n'
