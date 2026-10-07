@@ -75,10 +75,13 @@ var MeishiAI = (function () {
     function spacingDump(tf, from, to) {
         var out = [];
         for (var i = Math.max(0, from); i < to; i++) {
-            try {
-                var ch = tf.characters[i];
-                out.push(ch.contents + "(k" + ch.kerning + ",t" + ch.characterAttributes.tracking + ")");
-            } catch (e) { break; }
+            var ch;
+            try { ch = tf.characters[i]; } catch (e) { break; }
+            var c = "?", k = "?", t = "?";
+            try { c = ch.contents === "\r" ? "⏎" : ch.contents; } catch (e1) { /* 読めなければ ? */ }
+            try { k = ch.kerning; } catch (e2) { /* 読めなければ ? */ }
+            try { t = ch.characterAttributes.tracking; } catch (e3) { /* 読めなければ ? */ }
+            out.push(c + "(k" + k + ",t" + t + ")");
         }
         return out.join(" ");
     }

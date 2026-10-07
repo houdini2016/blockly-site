@@ -449,7 +449,11 @@ var MeishiCore = (function () {
                 // 値が空 → 見出しごと消す（前の空白も消す）
                 var s = found[i].labelStart;
                 while (s > 0 && /[ \t\u3000]/.test(line.charAt(s - 1))) s--;
-                add(s, vEnd, "", found[i].field);
+                var delEnd = vEnd;
+                // 行の頭の項目（「Mobile:000　E-mail:…」の Mobile）を消すときは、
+                // 後ろの区切りの空白（全角スペースなど）も消す。残すと次の項目の前にすき間ができる
+                if (s === 0 && i + 1 < found.length) delEnd = found[i + 1].labelStart;
+                add(s, delEnd, "", found[i].field);
             }
         }
 
