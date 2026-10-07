@@ -25,13 +25,23 @@ Object.defineProperty(TextRange.prototype, "contents", {
 });
 TextRange.prototype.remove = function () { this.contents = ""; };
 
+// 本物の Illustrator と同じく、消したテキストに触ると「オブジェクトが無効です」になる
 function TextFrame(contents, bounds, parent) {
-    var self = this;
+    var self = this, _contents = contents, _bounds = bounds || [0, 0, 10, -10];
+    function check() { if (self.removed) throw new Error("オブジェクトが無効です"); }
     this.removed = false;
-    this.remove = function () { self.removed = true; };
-    this.typename = "TextFrame"; this.contents = contents; this.name = "";
-    this.locked = false; this.geometricBounds = bounds || [0, 0, 10, -10]; this.parent = parent;
-    this.characters = new Proxy({}, { get: function (_, k) { return new TextRange(self, Number(k)); } });
+    this.remove = function () {
+        check();
+        self.removed = true;
+        var list = parent && parent.parent && parent.parent.textFrames;     // 書類のテキスト一覧からも消える
+        if (list && list.indexOf(self) >= 0) list.splice(list.indexOf(self), 1);
+    };
+    Object.defineProperty(this, "contents", { get: function () { check(); return _contents; },
+                                              set: function (v) { check(); _contents = v; } });
+    Object.defineProperty(this, "geometricBounds", { get: function () { check(); return _bounds; } });
+    this.typename = "TextFrame"; this.name = "";
+    this.locked = false; this.parent = parent;
+    this.characters = new Proxy({}, { get: function (_, k) { check(); return new TextRange(self, Number(k)); } });
 }
 function Item(type, bounds, doc) {
     this.typename = type; this.geometricBounds = bounds; this.locked = false; this.parent = doc.layer;
@@ -146,10 +156,11 @@ test("住所〜E-mail のテキスト: 未入力の Fax・Mobile・E-mail・住�
 
 test("未入力で空になったテキスト（肩書の枠など）はテキストごと消す", function () {
     var doc = makeDoc([["店\u3000長", [0, 0, 10, -10]], ["鈴\u3000木\u3000花\u3000子", [0, 0, 10, -10]]]);
+    var title = doc.textFrames[0], name = doc.textFrames[1];
     AI.editDocument(doc, HASHIMOTO, []);
-    assert.ok(doc.textFrames[0].removed);
-    assert.ok(!doc.textFrames[1].removed);
-    assert.strictEqual(doc.textFrames[1].contents, "五\u3000関\u3000北\u3000斗");
+    assert.ok(title.removed);
+    assert.ok(!name.removed);
+    assert.strictEqual(name.contents, "五\u3000関\u3000北\u3000斗");
 });
 
 test("Illustrator が改行をまたぐ削除でエラーを出しても、中身ごと入れ直して置き換える", function () {
@@ -242,9 +253,10 @@ test("部署名: 肩書の上に、肩書と同じフォントで 8pt（肩書�
 test("部署名: 肩書が空なら、肩書があった場所に肩書のフォントで入れる", function () {
     var doc = makeDoc([["店\u3000長", [264, -381, 290, -389]], ["鈴\u3000木\u3000花\u3000子", [264, -388, 348, -405]]]);
     doc.textFrames[0].fontAt = function () { return "肩書のフォント"; };
+    var title = doc.textFrames[0];
     var w = [];
     AI.editDocument(doc, { "部署": "営業部", "氏名": "山田 太郎" }, w);
-    assert.ok(doc.textFrames[0].removed);                     // 空になった肩書は消える
+    assert.ok(title.removed);                     // 空になった肩書は消える
     assert.strictEqual(doc.added[0].textRange.characterAttributes.textFont, "肩書のフォント");
     assert.deepStrictEqual(doc.added[0].position, [264, -381]);
     assert.ok(w.join("\n").indexOf("肩書の場所に") >= 0);
@@ -271,13 +283,13 @@ test("コロン: 見出しと値が別テキストなら1つにまとめて「E-
     var doc = makeDoc([["E-mail", [312.8, -478.9, 332.0, -485.9]], ["  : ooooo@oooo.com", [325.5, -478.9, 399.7, -485.9]],
                        ["Tel : 000-000-0000", [312.8, -470, 380, -477]], ["URL", [312.8, -490, 330, -497]],
                        ["  : http://www.0123456.jp/", [325.5, -490, 400, -497]]]);
-    var valueFrame = doc.textFrames[1];
+    var f = doc.textFrames.slice(0), valueFrame = f[1];
     AI.editDocument(doc, { "メール": "taro@example.co.jp", "TEL": "03-1234-5678", "URL": "https://example.co.jp/" }, []);
-    assert.strictEqual(doc.textFrames[0].contents, "E-mail：taro@example.co.jp");
+    assert.strictEqual(f[0].contents, "E-mail：taro@example.co.jp");
     assert.ok(valueFrame.removed);
-    assert.strictEqual(doc.textFrames[2].contents, "Tel：03-1234-5678");
-    assert.strictEqual(doc.textFrames[3].contents, "URL");                        // URL はまとめない・そのまま
-    assert.strictEqual(doc.textFrames[4].contents, "  : https://example.co.jp/");
+    assert.strictEqual(f[2].contents, "Tel：03-1234-5678");
+    assert.strictEqual(f[3].contents, "URL");                        // URL はまとめない・そのまま
+    assert.strictEqual(f[4].contents, "  : https://example.co.jp/");
 });
 
 test("コロン: メールが未入力なら見出しも値も消える", function () {

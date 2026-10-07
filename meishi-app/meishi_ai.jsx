@@ -48,6 +48,7 @@ var MeishiAI = (function () {
     function resetSpacing(tf, baseIndex, start, len) {
         var base = 0;
         try { base = tf.characters[baseIndex].characterAttributes.tracking; } catch (e0) { base = 0; }
+        try { tf.characters[baseIndex].kerning = 0; } catch (e3) { /* 見出しの最初の文字の前に余計なすき間を作らない */ }
         for (var i = start - 1; i < start + len; i++) {
             if (i < 0) continue;
             try {
@@ -58,12 +59,31 @@ var MeishiAI = (function () {
         }
     }
 
+    // 確認用ログ（「E-mail」の行などの文字ごとの間隔を、直す前と後で記録する）
+    var debugLog = [];
+
+    function spacingDump(tf, from, to) {
+        var out = [];
+        for (var i = Math.max(0, from); i < to; i++) {
+            try {
+                var ch = tf.characters[i];
+                out.push(ch.contents + "(k" + ch.kerning + ",t" + ch.characterAttributes.tracking + ")");
+            } catch (e) { break; }
+        }
+        return out.join(" ");
+    }
+
     // edits を当てはめたあとの、それぞれの置き換え部分の始まりの位置で resetSpacing する
     function fixSpacing(tf, edits) {
         var shift = 0;
         for (var e = 0; e < edits.length; e++) {
             var ed = edits[e];
-            if (ed.hasOwnProperty("spacingFrom")) resetSpacing(tf, ed.spacingFrom + shift, ed.start + shift, ed.text.length);
+            if (ed.hasOwnProperty("spacingFrom")) {
+                var from = ed.spacingFrom + shift, st = ed.start + shift;
+                var beforeDump = spacingDump(tf, from - 1, st + 3);
+                resetSpacing(tf, from, st, ed.text.length);
+                debugLog.push(ed.field + "  直す前: " + beforeDump + "\n" + ed.field + "  直した後: " + spacingDump(tf, from - 1, st + 3));
+            }
             shift += ed.text.length - (ed.end - ed.start);
         }
     }
@@ -289,8 +309,9 @@ var MeishiAI = (function () {
     var LABEL_GAP = 1;         // 元のテキストとのすき間（pt）
 
     // 書き換える前に、そのテキストの位置・フォント・そろえ方・縦書きかを覚えておく
-    function captureInfo(tf, index) {
-        var info = { frame: tf, bounds: tf.geometricBounds, font: null, align: "left", vertical: false };
+    function captureInfo(tf, index, frameIndex) {
+        var info = { frame: tf, frameIndex: frameIndex, removed: false, bounds: tf.geometricBounds,
+                     font: null, align: "left", vertical: false };
         try { info.font = tf.characters[index].characterAttributes.textFont; } catch (e1) { /* フォントは標準のまま */ }
         try { info.vertical = tf.orientation === TextOrientation.VERTICAL; } catch (e2) { /* 横書き */ }
         try {
@@ -302,7 +323,9 @@ var MeishiAI = (function () {
     }
 
     // 元のテキストがまだあればその今の位置、消えていれば書き換える前の位置
+    // （消したテキストに触ると Illustrator が「オブジェクトが無効です」になるので、消したものは覚えた位置を使う）
     function currentBounds(info) {
+        if (info.removed) return info.bounds;
         try { return info.frame.geometricBounds; } catch (e) { return info.bounds; }
     }
 
@@ -380,22 +403,17 @@ var MeishiAI = (function () {
     // 書類の文字を注文内容に書き換える。確認してほしいことを warnings に足す。
     function editDocument(doc, rec, warnings) {
         removeLogoMarks(doc, rec, warnings);   // LOGO の文字が会社名に変わる前に探す
-        var merged = [];
-        try { merged = mergeSplitLabels(doc); }
+        try { mergeSplitLabels(doc); }
         catch (mergeErr) { warnings.push("「E-mail」などの見出しをまとめられませんでした（" + mergeErr.message + "）"); }
 
         var used = [];
         var frames = [];
-        for (var i = 0; i < doc.textFrames.length; i++) {
-            var skip = false;
-            for (var mg = 0; mg < merged.length; mg++) if (merged[mg] === doc.textFrames[i]) skip = true;
-            if (!skip) frames.push(doc.textFrames[i]);
-        }
+        // （まとめて消したテキストは、もう doc.textFrames に入っていない）
+        for (var i = 0; i < doc.textFrames.length; i++) frames.push(doc.textFrames[i]);
 
         var values = C.prepareValues(rec);
         var nameInfo = null, titleInfo = null, companyInfo = null;   // ふりがな・部署名を置く場所の目印
         var COMPANY_KEYS = ["会社名", "会社名_後", "会社名_前", "会社名英字", "(そのまま)"];
-        var removedFrames = [];                  // 未入力で消したテキスト
         for (var f = 0; f < frames.length; f++) {
             var tf = frames[f];
             var frameBefore = tf.contents;
@@ -403,18 +421,18 @@ var MeishiAI = (function () {
             try {
                 // テキストに項目名の名前（例:「氏名」）が付いていれば、中身を丸ごと置き換える
                 if (tf.name && C.FIELD_ALIASES.hasOwnProperty(tf.name)) {
-                    if (tf.name === "氏名" && !nameInfo) nameInfo = captureInfo(tf, 0);
-                    if (tf.name === "肩書" && !titleInfo) titleInfo = captureInfo(tf, 0);
+                    if (tf.name === "氏名" && !nameInfo) nameInfo = captureInfo(tf, 0, f);
+                    if (tf.name === "肩書" && !titleInfo) titleInfo = captureInfo(tf, 0, f);
                     if (tf.contents !== "") replaceRange(tf, 0, tf.contents.length, values[tf.name] || "");
                     used.push(tf.name);
                 } else {
                     var before = tf.contents;
                     var plan = C.planEdits(before, rec);
                     for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);
-                    if (!nameInfo && plan.fieldPos.hasOwnProperty("氏名")) nameInfo = captureInfo(tf, plan.fieldPos["氏名"]);
-                    if (!titleInfo && plan.fieldPos.hasOwnProperty("肩書")) titleInfo = captureInfo(tf, plan.fieldPos["肩書"]);
+                    if (!nameInfo && plan.fieldPos.hasOwnProperty("氏名")) nameInfo = captureInfo(tf, plan.fieldPos["氏名"], f);
+                    if (!titleInfo && plan.fieldPos.hasOwnProperty("肩書")) titleInfo = captureInfo(tf, plan.fieldPos["肩書"], f);
                     for (var ck = 0; !companyInfo && ck < COMPANY_KEYS.length; ck++) {
-                        if (plan.fieldPos.hasOwnProperty(COMPANY_KEYS[ck])) companyInfo = captureInfo(tf, plan.fieldPos[COMPANY_KEYS[ck]]);
+                        if (plan.fieldPos.hasOwnProperty(COMPANY_KEYS[ck])) companyInfo = captureInfo(tf, plan.fieldPos[COMPANY_KEYS[ck]], f);
                     }
                     if (plan.edits.length > 0) {
                         var expected = C.applyEditsToString(before, plan.edits);
@@ -444,7 +462,15 @@ var MeishiAI = (function () {
             // 未入力で中身が空になったテキストは、テキストごと消す
             var emptied = false;
             try {
-                if (frameBefore !== "" && C.trim(tf.contents) === "") { removedFrames.push(tf); tf.remove(); emptied = true; }
+                if (frameBefore !== "" && C.trim(tf.contents) === "") {
+                    // 消す前に（まだ有効なうちに）目印のテキストかどうかを記録する
+                    var infos = [nameInfo, titleInfo, companyInfo];
+                    for (var ii = 0; ii < infos.length; ii++) {
+                        if (infos[ii] && infos[ii].frameIndex === f) infos[ii].removed = true;   // 番号で比べる（消したものとは比べない）
+                    }
+                    tf.remove();
+                    emptied = true;
+                }
             } catch (removeErr) { /* 消せなくても空なので見た目は同じ */ }
             if (!emptied) relock();
         }
@@ -468,8 +494,7 @@ var MeishiAI = (function () {
         //   4. 肩書も氏名も場所がなければ、会社名の下
         //   5. どれも見つからない・入れられなければ、中心から 5cm 上（まとめて）
         if (rec["部署"]) {
-            var titleGone = false;
-            for (var rf = 0; titleInfo && rf < removedFrames.length; rf++) if (removedFrames[rf] === titleInfo.frame) titleGone = true;
+            var titleGone = !!(titleInfo && titleInfo.removed);
             var tries = [];
             if (titleInfo) tries.push([titleInfo, titleGone ? "inPlace" : "above", titleGone ? "肩書の場所" : "肩書の上"]);
             if (nameInfo) tries.push([nameInfo, "above", "氏名の上"]);
@@ -522,6 +547,7 @@ var MeishiAI = (function () {
         fallbackLine: fallbackLine,
         mergeSplitLabels: mergeSplitLabels,
         fixSpacing: fixSpacing,
+        debugLog: debugLog,
         REMARK_OFFSET: REMARK_OFFSET,
         FALLBACK_OFFSET: FALLBACK_OFFSET,
         editDocument: editDocument

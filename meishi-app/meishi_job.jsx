@@ -72,6 +72,16 @@
         app.userInteractionLevel = oldLevel;
     }
 
+    // 確認用ログ（うまくいかないときに送ってもらう）：デスクトップの「名刺作成ログ.txt」
+    try {
+        var log = new File(Folder.desktop + "/名刺作成ログ.txt");
+        log.encoding = "UTF-8";
+        log.open("w");
+        log.write("\uFEFF" + report.join("\n\n") + "\n\n--- 文字の間隔（k=カーニング, t=トラッキング） ---\n" +
+                  MeishiAI.debugLog.join("\n"));
+        log.close();
+    } catch (logErr) { /* ログが書けなくても名刺づくりには関係ない */ }
+
     if (report.length > 0) {
         alert("名刺を作成しました。次の点を確認してください。\n\n" + report.join("\n\n"));
     }
