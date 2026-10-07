@@ -306,11 +306,16 @@ var MeishiCore = (function () {
                 }
                 continue;
             }
-            // 後ろに残る行があれば「この行＋後ろの改行」を消す
-            var keptAfter = false;
+            // 前に残る行があれば「前の改行＋この行」を消す。
+            // （「この行＋後ろの改行」を消すと、Illustrator では次の行が消した行の段落の設定
+            //   （字下げ・文字組みなど）を引き継いで、行の頭にすき間ができることがある）
+            var keptBefore = false, keptAfter = false;
+            for (var jb = 0; jb < i; jb++) if (!lines[jb].remove) { keptBefore = true; break; }
             for (var j = i + 1; j < lines.length; j++) if (!lines[j].remove) { keptAfter = true; break; }
-            if (keptAfter) {
-                edits.push({ start: L.start, end: L.end + 1, text: "", field: "(行削除)" });
+            if (keptBefore && keptAfter) {
+                edits.push({ start: L.start - 1, end: L.end, text: "", field: "(行削除)" });
+            } else if (keptAfter) {
+                edits.push({ start: L.start, end: L.end + 1, text: "", field: "(行削除)" });   // 先頭の行
             } else {
                 // 最後まで消す行が続く → 前の改行からテキストの最後までをまとめて消す
                 edits.push({ start: L.start > 0 ? L.start - 1 : 0, end: contents.length, text: "", field: "(行削除)" });

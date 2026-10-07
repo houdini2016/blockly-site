@@ -48,7 +48,17 @@ var MeishiAI = (function () {
     function resetSpacing(tf, baseIndex, start, len) {
         var base = 0;
         try { base = tf.characters[baseIndex].characterAttributes.tracking; } catch (e0) { base = 0; }
-        try { tf.characters[baseIndex].kerning = 0; } catch (e3) { /* 見出しの最初の文字の前に余計なすき間を作らない */ }
+        // 見出しの最初の文字の前に余計なすき間を作らない（その文字と、ひとつ前の改行文字の間隔を 0 に）
+        try { tf.characters[baseIndex].kerning = 0; } catch (e3) { /* そのまま */ }
+        if (baseIndex > 0) {
+            try {
+                var prev = tf.characters[baseIndex - 1];
+                if (/[\r\n\u0003]/.test(prev.contents)) {
+                    prev.kerning = 0;
+                    prev.characterAttributes.tracking = base;
+                }
+            } catch (e4) { /* そのまま */ }
+        }
         for (var i = start - 1; i < start + len; i++) {
             if (i < 0) continue;
             try {
@@ -73,6 +83,14 @@ var MeishiAI = (function () {
         return out.join(" ");
     }
 
+    // その行（段落）の字下げの設定（ログ用）
+    function indentDump(tf, index) {
+        try {
+            var pa = tf.characters[index].paragraphAttributes;
+            return "[字下げ 左" + pa.leftIndent + " 1行目" + pa.firstLineIndent + " そろえ" + pa.justification + "]";
+        } catch (e) { return ""; }
+    }
+
     // edits を当てはめたあとの、それぞれの置き換え部分の始まりの位置で resetSpacing する
     function fixSpacing(tf, edits) {
         var shift = 0;
@@ -80,7 +98,7 @@ var MeishiAI = (function () {
             var ed = edits[e];
             if (ed.hasOwnProperty("spacingFrom")) {
                 var from = ed.spacingFrom + shift, st = ed.start + shift;
-                var beforeDump = spacingDump(tf, from - 1, st + 3);
+                var beforeDump = spacingDump(tf, from - 1, st + 3) + "  " + indentDump(tf, from);
                 resetSpacing(tf, from, st, ed.text.length);
                 debugLog.push(ed.field + "  直す前: " + beforeDump + "\n" + ed.field + "  直した後: " + spacingDump(tf, from - 1, st + 3));
             }

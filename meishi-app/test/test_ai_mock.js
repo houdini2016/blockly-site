@@ -369,7 +369,7 @@ test("コロン: 詰めてあった文字間隔（カーニング・トラッキ
     assert.strictEqual(after, "Mobile：090-9085-8613\rE-mail：xxx3r.m.k0211@gmail.com");
     // 置き換えたあとの文字（間隔の情報つき）
     var chars = [];
-    for (var i = 0; i < after.length; i++) chars.push({ c: after.charAt(i), kerning: -600, characterAttributes: { tracking: -300 } });
+    for (var i = 0; i < after.length; i++) chars.push({ c: after.charAt(i), contents: after.charAt(i), kerning: -600, characterAttributes: { tracking: -300 } });
     var eIndex = after.indexOf("E-mail");
     chars[0].characterAttributes.tracking = 20;          // 「M」の間隔
     chars[eIndex].characterAttributes.tracking = 10;     // 「E」の間隔
@@ -382,6 +382,9 @@ test("コロン: 詰めてあった文字間隔（カーニング・トラッキ
     var mColon = after.indexOf("：");
     assert.strictEqual(chars[mColon].characterAttributes.tracking, 20);   // Mobile の行は「M」に合わせる
     assert.strictEqual(chars[eIndex + 1].kerning, -600);                 // 見出しの途中は触らない
+    assert.strictEqual(chars[eIndex - 1].c, "\r");
+    assert.strictEqual(chars[eIndex - 1].kerning, 0);                   // E の前の改行文字の間隔も 0 に
+    assert.strictEqual(chars[eIndex].kerning, 0);
 });
 
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
