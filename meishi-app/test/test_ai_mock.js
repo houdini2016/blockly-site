@@ -387,5 +387,22 @@ test("コロン: 詰めてあった文字間隔（カーニング・トラッキ
     assert.strictEqual(chars[eIndex].kerning, 0);
 });
 
+test("会社名は 13pt（LOGO・株式会社／〇〇商事の2行・英字の会社名）", function () {
+    function sizes(before, rec) {
+        var plan = C2.planEdits(before, rec);
+        var after = C2.applyEditsToString(before, plan.edits);
+        var chars = [];
+        for (var i = 0; i < after.length; i++) chars.push({ c: after.charAt(i), characterAttributes: { size: 7 } });
+        AI.applyFieldSizes({ characters: chars }, plan.edits);
+        return after + " " + chars.map(function (c) { return c.characterAttributes.size; }).join(",");
+    }
+    assert.strictEqual(sizes("LOGO", { "会社名": "株式会社A", "ロゴデータ": "無し" }), "株式会社A 13,13,13,13,13");
+    assert.strictEqual(sizes("株式会社\r\u3000〇〇〇〇商事", { "会社名": "株式会社AB", "ロゴデータ": "無し" }),
+                       "株式会社\r\u3000AB 13,13,13,13,7,7,13,13");          // 改行・字下げはそのまま
+    assert.strictEqual(sizes("Tel : 000-000-0000\rLOGO", { "会社名": "A", "TEL": "03-1" }),
+                       "Tel：03-1\rA 7,7,7,7,7,7,7,7,7,13");                    // ほかの項目は変えない
+    assert.strictEqual(sizes("artcode", { "会社名": "A社", "会社名英字": "A Inc." }), "A Inc. 13,13,13,13,13,13");
+});
+
 console.log(failures === 0 ? "\nすべて成功" : "\n失敗: " + failures + " 件");
 process.exit(failures === 0 ? 0 : 1);

@@ -109,6 +109,25 @@ var MeishiAI = (function () {
         }
     }
 
+    // 流し込んだ文字の大きさを決めている項目（pt）
+    var FIELD_SIZES = { "会社名": 13, "会社名_前": 13, "会社名_後": 13, "会社名英字": 13 };
+
+    function setSize(tf, start, len, size) {
+        for (var i = start; i < start + len; i++) {
+            try { tf.characters[i].characterAttributes.size = size; } catch (e) { /* その文字は飛ばす */ }
+        }
+    }
+
+    // edits を当てはめたあとの位置で、FIELD_SIZES の項目の文字の大きさをそろえる
+    function applyFieldSizes(tf, edits) {
+        var shift = 0;
+        for (var e = 0; e < edits.length; e++) {
+            var ed = edits[e];
+            if (FIELD_SIZES.hasOwnProperty(ed.field) && ed.text !== "") setSize(tf, ed.start + shift, ed.text.length, FIELD_SIZES[ed.field]);
+            shift += ed.text.length - (ed.end - ed.start);
+        }
+    }
+
     // 書き換えのじゃまになるロックを一時的に外す
     function unlockFor(item) {
         var restore = [];
@@ -445,6 +464,7 @@ var MeishiAI = (function () {
                     if (tf.name === "氏名" && !nameInfo) nameInfo = captureInfo(tf, 0, f);
                     if (tf.name === "肩書" && !titleInfo) titleInfo = captureInfo(tf, 0, f);
                     if (tf.contents !== "") replaceRange(tf, 0, tf.contents.length, values[tf.name] || "");
+                    if (FIELD_SIZES.hasOwnProperty(tf.name) && tf.contents !== "") setSize(tf, 0, tf.contents.length, FIELD_SIZES[tf.name]);
                     used.push(tf.name);
                 } else {
                     var before = tf.contents;
@@ -471,6 +491,7 @@ var MeishiAI = (function () {
                             warnings.push("文字の書式が一部くずれたかもしれません: 「" + oneLine(expected) + "」");
                         }
                         fixSpacing(tf, plan.edits);   // 「：」が見出しに重ならないよう文字の間隔をそろえる
+                        applyFieldSizes(tf, plan.edits);   // 会社名は 13pt
                     }
                     for (var nt = 0; nt < plan.notes.length; nt++) warnings.push(plan.notes[nt]);
                     for (var r = 0; r < plan.leftoverRemoved.length; r++) {
@@ -568,6 +589,7 @@ var MeishiAI = (function () {
         fallbackLine: fallbackLine,
         mergeSplitLabels: mergeSplitLabels,
         fixSpacing: fixSpacing,
+        applyFieldSizes: applyFieldSizes,
         debugLog: debugLog,
         REMARK_OFFSET: REMARK_OFFSET,
         FALLBACK_OFFSET: FALLBACK_OFFSET,
