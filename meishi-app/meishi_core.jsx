@@ -343,6 +343,7 @@ var MeishiCore = (function () {
                     var ed = { start: L.edits[k].start + L.start, end: L.edits[k].end + L.start,
                                text: L.edits[k].text, field: L.edits[k].field };
                     if (L.edits[k].hasOwnProperty("spacingFrom")) ed.spacingFrom = L.edits[k].spacingFrom + L.start;
+                    if (L.edits[k].hasOwnProperty("labelFrom")) ed.labelFrom = L.edits[k].labelFrom + L.start;
                     edits.push(ed);
                 }
                 continue;
@@ -491,6 +492,8 @@ var MeishiCore = (function () {
                 } else {
                     add(found[i].valueStart, vEnd, newValue, found[i].field);
                 }
+                // 見出しの最初の文字の位置（TEL・FAX・Mobile の行のトラッキングをそろえるときの目印）
+                edits[edits.length - 1].labelFrom = found[i].labelStart;
             } else {
                 // 値が空 → 見出しごと消す（前の空白も消す）
                 var s = found[i].labelStart;

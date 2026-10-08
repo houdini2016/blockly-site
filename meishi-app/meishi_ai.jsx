@@ -137,6 +137,29 @@ var MeishiAI = (function () {
         }
     }
 
+    // 流し込んだ文字のトラッキングを決めている項目（見出しから値の最後まで）
+    var FIELD_TRACKING = { "TEL": 50, "FAX": 50, "携帯": 50 };
+
+    function setTracking(tf, start, end, value) {
+        for (var i = start; i < end; i++) {
+            try { tf.characters[i].characterAttributes.tracking = value; } catch (e) { /* その文字は飛ばす */ }
+        }
+    }
+
+    // edits を当てはめたあとの位置で、TEL・FAX・Mobile の見出しと値のトラッキングをそろえる
+    function applyFieldTracking(tf, edits) {
+        var shift = 0;
+        for (var e = 0; e < edits.length; e++) {
+            var ed = edits[e];
+            if (FIELD_TRACKING.hasOwnProperty(ed.field) && ed.text !== "") {
+                var st = ed.start + shift;
+                var from = ed.hasOwnProperty("labelFrom") ? newPos(edits, ed.labelFrom) : st;
+                setTracking(tf, Math.min(from, st), st + ed.text.length, FIELD_TRACKING[ed.field]);
+            }
+            shift += ed.text.length - (ed.end - ed.start);
+        }
+    }
+
     // 書き換えのじゃまになるロックを一時的に外す
     function unlockFor(item) {
         var restore = [];
@@ -477,6 +500,7 @@ var MeishiAI = (function () {
                     if (tf.name === "肩書" && !titleInfo) titleInfo = captureInfo(tf, 0, f);
                     if (tf.contents !== "") replaceRange(tf, 0, tf.contents.length, values[tf.name] || "");
                     if (FIELD_SIZES.hasOwnProperty(tf.name) && tf.contents !== "") setSize(tf, 0, tf.contents.length, FIELD_SIZES[tf.name]);
+                    if (FIELD_TRACKING.hasOwnProperty(tf.name) && tf.contents !== "") setTracking(tf, 0, tf.contents.length, FIELD_TRACKING[tf.name]);
                     used.push(tf.name);
                 } else {
                     var before = tf.contents;
@@ -504,6 +528,7 @@ var MeishiAI = (function () {
                         }
                         fixSpacing(tf, plan.edits);   // 「：」が見出しに重ならないよう文字の間隔をそろえる
                         applyFieldSizes(tf, plan.edits);   // 会社名は 13pt
+                        applyFieldTracking(tf, plan.edits);   // TEL・FAX・Mobile はトラッキング 50
                     }
                     for (var nt = 0; nt < plan.notes.length; nt++) warnings.push(plan.notes[nt]);
                     for (var r = 0; r < plan.leftoverRemoved.length; r++) {
@@ -602,6 +627,7 @@ var MeishiAI = (function () {
         mergeSplitLabels: mergeSplitLabels,
         fixSpacing: fixSpacing,
         applyFieldSizes: applyFieldSizes,
+        applyFieldTracking: applyFieldTracking,
         debugLog: debugLog,
         REMARK_OFFSET: REMARK_OFFSET,
         FALLBACK_OFFSET: FALLBACK_OFFSET,

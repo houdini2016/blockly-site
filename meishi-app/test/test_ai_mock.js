@@ -412,6 +412,30 @@ test("TEL と FAX が同じ番号：FAX の行は消え、中心から5cm上に�
     assert.ok(w.join("\n").indexOf("TEL/FAX") >= 0);
 });
 
+test("TEL・FAX・Mobile は見出しから値の最後までトラッキング 50（E-mail はそのまま）", function () {
+    function tracks(before, rec) {
+        var plan = C2.planEdits(before, rec);
+        var after = C2.applyEditsToString(before, plan.edits);
+        var chars = [];
+        for (var i = 0; i < after.length; i++) chars.push({ c: after.charAt(i), contents: after.charAt(i), kerning: 0, characterAttributes: { tracking: -20 } });
+        AI.fixSpacing({ characters: chars }, plan.edits);
+        AI.applyFieldTracking({ characters: chars }, plan.edits);
+        return { text: after, t: chars.map(function (c) { return c.characterAttributes.tracking; }) };
+    }
+    var r = tracks("Tel : 000-000-0000\rFax : 000-000-0000\rMobile : 000-0000-0000\rE-mail : ooooo@oooo.com",
+                   { "TEL": "03-1", "FAX": "03-2", "携帯": "090-3", "メール": "a@b.jp" });
+    assert.strictEqual(r.text, "Tel：03-1\rFax：03-2\rMobile：090-3\rE-mail：a@b.jp");
+    var mailAt = r.text.indexOf("E-mail");
+    for (var i = 0; i < mailAt; i++) if (r.text.charAt(i) !== "\r") assert.strictEqual(r.t[i], 50, "char " + i + " " + r.text.charAt(i));
+    assert.strictEqual(r.t[mailAt + 1], -20);                                    // E-mail の見出しは触らない
+    // コロンのない書き方・TEL/FAX にまとめたとき
+    var r2 = tracks("電話 000-000-0000", { "TEL": "03-1" });
+    assert.deepStrictEqual(r2.t, r2.text.split("").map(function () { return 50; }));
+    var r3 = tracks("TEL : 000-000-0000\rFAX : 000-000-0000", { "TEL": "03-1", "FAX": "03-1" });
+    assert.strictEqual(r3.text, "TEL/FAX：03-1");
+    assert.deepStrictEqual(r3.t, r3.text.split("").map(function () { return 50; }));
+});
+
 test("会社名は 13pt（LOGO・株式会社／〇〇商事の2行・英字の会社名）", function () {
     function sizes(before, rec) {
         var plan = C2.planEdits(before, rec);
