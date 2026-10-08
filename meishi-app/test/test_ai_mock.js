@@ -387,6 +387,31 @@ test("コロン: 詰めてあった文字間隔（カーニング・トラッキ
     assert.strictEqual(chars[eIndex].kerning, 0);
 });
 
+test("TEL/FAX：見出しを長くしても、文字間隔は「T」に合わせる（2行目でもずれない）", function () {
+    var before = "Mobile : 000-0000-0000\rTEL  : 000-000-0000\rFAX  : 000-000-0000";
+    var plan = C2.planEdits(before, { "携帯": "090-1", "TEL": "03-1", "FAX": "03-1" });
+    var after = C2.applyEditsToString(before, plan.edits);
+    assert.strictEqual(after, "Mobile：090-1\rTEL/FAX：03-1");
+    var chars = [];
+    for (var i = 0; i < after.length; i++) chars.push({ c: after.charAt(i), contents: after.charAt(i), kerning: -600, characterAttributes: { tracking: -300 } });
+    var tIndex = after.indexOf("TEL");
+    chars[tIndex].characterAttributes.tracking = 10;     // 「T」の間隔
+    AI.fixSpacing({ characters: chars }, plan.edits);
+    var colon = after.indexOf("：", tIndex);
+    for (var j = colon - 1; j < after.length; j++) assert.strictEqual(chars[j].characterAttributes.tracking, 10, "tracking " + j);
+    assert.strictEqual(chars[tIndex - 1].c, "\r");
+    assert.strictEqual(chars[tIndex - 1].kerning, 0);
+});
+
+test("TEL と FAX が同じ番号：FAX の行は消え、中心から5cm上にも入れない", function () {
+    var doc = makeDoc([["Tel : 000-000-0000\rFax : 000-000-0000", [0, 0, 100, -20]]]);
+    var w = [];
+    AI.editDocument(doc, { "氏名": "", "TEL": "03－1234－5678", "FAX": "０３-１２３４-５６７８" }, w);
+    assert.strictEqual(doc.textFrames[0].contents, "Tel/Fax：03-1234-5678");
+    assert.strictEqual(doc.added.length, 0);
+    assert.ok(w.join("\n").indexOf("TEL/FAX") >= 0);
+});
+
 test("会社名は 13pt（LOGO・株式会社／〇〇商事の2行・英字の会社名）", function () {
     function sizes(before, rec) {
         var plan = C2.planEdits(before, rec);

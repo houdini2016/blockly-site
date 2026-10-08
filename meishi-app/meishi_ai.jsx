@@ -94,13 +94,22 @@ var MeishiAI = (function () {
         } catch (e) { return ""; }
     }
 
+    // 元のテキストの pos 文字目が、edits を当てはめたあと何文字目になるか
+    function newPos(edits, pos) {
+        var p = pos;
+        for (var e = 0; e < edits.length; e++) {
+            if (edits[e].end <= pos && edits[e].start < pos) p += edits[e].text.length - (edits[e].end - edits[e].start);
+        }
+        return p;
+    }
+
     // edits を当てはめたあとの、それぞれの置き換え部分の始まりの位置で resetSpacing する
     function fixSpacing(tf, edits) {
         var shift = 0;
         for (var e = 0; e < edits.length; e++) {
             var ed = edits[e];
             if (ed.hasOwnProperty("spacingFrom")) {
-                var from = ed.spacingFrom + shift, st = ed.start + shift;
+                var from = newPos(edits, ed.spacingFrom), st = ed.start + shift;
                 var beforeDump = spacingDump(tf, from - 1, st + 3) + "  " + indentDump(tf, from);
                 resetSpacing(tf, from, st, ed.text.length);
                 debugLog.push(ed.field + "  直す前: " + beforeDump + "\n" + ed.field + "  直した後: " + spacingDump(tf, from - 1, st + 3));
@@ -434,7 +443,8 @@ var MeishiAI = (function () {
                           "住所1", "住所2", "英字住所1", "英字住所2", "TEL", "FAX", "携帯", "メール", "URL"];
     var FALLBACK_PREFIX = { "郵便番号": "〒", "TEL": "TEL：", "FAX": "FAX：", "携帯": "Mobile：", "メール": "E-mail：" };
 
-    function fallbackLine(field, value) {
+    function fallbackLine(field, value, rec) {
+        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX：" + value;
         return (FALLBACK_PREFIX[field] || "") + value;
     }
 
@@ -442,6 +452,8 @@ var MeishiAI = (function () {
 
     // 書類の文字を注文内容に書き換える。確認してほしいことを warnings に足す。
     function editDocument(doc, rec, warnings) {
+        rec = C.normalizeRecord(rec);          // ハイフンを半角に・TEL と FAX が同じなら TEL/FAX に
+        if (rec.__telfax) warnings.push("TEL と FAX が同じ番号なので「TEL/FAX」1つにまとめました");
         removeLogoMarks(doc, rec, warnings);   // LOGO の文字が会社名に変わる前に探す
         try { mergeSplitLabels(doc); }
         catch (mergeErr) { warnings.push("「E-mail」などの見出しをまとめられませんでした（" + mergeErr.message + "）"); }
@@ -556,7 +568,7 @@ var MeishiAI = (function () {
         var unused = C.unusedFields(rec, used);
         for (var fo = 0; fo < FALLBACK_ORDER.length; fo++) {
             for (var un = 0; un < unused.length; un++) {
-                if (unused[un] === FALLBACK_ORDER[fo]) toFallback(unused[un], fallbackLine(unused[un], rec[unused[un]]));
+                if (unused[un] === FALLBACK_ORDER[fo]) toFallback(unused[un], fallbackLine(unused[un], rec[unused[un]], rec));
             }
         }
         if (rec["自由行"]) toFallback("自由記入（行目）", rec["自由行"].split(" / ").join("\r"));

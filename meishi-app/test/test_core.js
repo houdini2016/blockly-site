@@ -317,6 +317,34 @@ test("ファイル名は 注文番号_名前.ai（空白や使えない文字は
     assert.strictEqual(C.makeFileName({ "注文番号": "9", "氏名英字": "Taro Yamada" }), "9_TaroYamada.ai");
 });
 
+test("ハイフンは半角の - にそろえる（カタカナの「ー」は残す）", function () {
+    assert.strictEqual(C.normalizeHyphens("０３－１２３４‐５６７８"), "０３-１２３４-５６７８");
+    assert.strictEqual(C.normalizeHyphens("03ー1234ー5678"), "03-1234-5678");
+    assert.strictEqual(C.normalizeHyphens("港区1丁目2―3"), "港区1丁目2-3");
+    assert.strictEqual(C.normalizeHyphens("コーヒー"), "コーヒー");
+    var rec = { "TEL": "03－1234－5678", "郵便番号": "123ー4567", "住所1": "東京都港区1−2−3", "備考": "－－" };
+    assert.strictEqual(run("Tel : 000-000-0000", rec).text, "Tel：03-1234-5678");
+    assert.strictEqual(run("〒000-0000", rec).text, "〒123-4567");
+    assert.strictEqual(C.normalizeRecord(rec)["住所1"], "東京都港区1-2-3");
+    assert.strictEqual(C.normalizeRecord(rec)["備考"], "－－");                 // 備考はそのまま
+});
+
+test("TEL と FAX が同じ番号なら TEL/FAX：1つにまとめる", function () {
+    var rec = { "TEL": "03-1234-5678", "FAX": "03－1234－5678" };
+    assert.strictEqual(run("TEL : 000-000-0000\rFAX : 000-000-0000", rec).text, "TEL/FAX：03-1234-5678");
+    assert.strictEqual(run("FAX : 000-000-0000\rTEL : 000-000-0000", rec).text, "TEL/FAX：03-1234-5678");
+    assert.strictEqual(run("Tel : 000-000-0000　Fax : 000-000-0000", rec).text, "Tel/Fax：03-1234-5678");
+    assert.strictEqual(run("ＴＥＬ 000-000-0000", rec).text, "ＴＥＬ／ＦＡＸ 03-1234-5678");
+    // 見出しだけのテキスト（値は別のテキスト）
+    assert.strictEqual(run("TEL\rFAX", rec).text, "TEL/FAX");
+    // 番号が違えば今までどおり
+    var diff = { "TEL": "03-1234-5678", "FAX": "03-1234-5679" };
+    assert.strictEqual(run("TEL : 000-000-0000\rFAX : 000-000-0000", diff).text, "TEL：03-1234-5678\rFAX：03-1234-5679");
+    // FAX の差し込み先が余らない（中心から5cm上に入れない）
+    var plan = C.planEdits("TEL : 000-000-0000", rec);
+    assert.deepStrictEqual(C.unusedFields(C.normalizeRecord(rec), plan.used), []);
+});
+
 test("文字コードの判定", function () {
     var utf8 = Buffer.from("注文番号", "utf8").toString("latin1");
     var sjis = String.fromCharCode(0x92, 0x8D, 0x95, 0xB6);  // 「注文」の Shift_JIS

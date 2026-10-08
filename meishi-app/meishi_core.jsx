@@ -198,9 +198,50 @@ var MeishiCore = (function () {
     }
 
     // 部署は別のテキストとして肩書の上に入れる（meishi_ai.jsx）
+    // ハイフンのような文字（全角の「－」など）を半角の「-」にする。
+    // 「ー」「―」は、数字にはさまれているとき（「1ー2ー3」など）だけ変える（カタカナの「ー」は残す）
+    function normalizeHyphens(s) {
+        return String(s).replace(/[－‐‑‒–−﹣]/g, "-")
+                        .replace(/([0-9０-９])[ー―—ｰ](?=[0-9０-９])/g, "$1-");
+    }
+
+    // 電話番号の数字だけ（全角の数字も半角にして比べる）
+    function digitsOf(s) {
+        return String(s).replace(/[０-９]/g, function (d) {
+            return String.fromCharCode(d.charCodeAt(0) - 0xFEE0);
+        }).replace(/[^0-9]/g, "");
+    }
+
+    // ハイフンをそろえない項目（備考はお客さんの書いたまま、ファイルの場所はそのまま）
+    var KEEP_AS_IS = ["備考", "確認事項", "テンプレート", "保存先"];
+
+    // 注文の値を名刺に入れる形にそろえる。
+    //  ・ハイフンを半角の「-」に
+    //  ・TEL と FAX の番号が同じなら FAX を空にして、TEL の見出しを「TEL/FAX」にする（__telfax の印）
+    function normalizeRecord(rec) {
+        var out = {};
+        for (var k in rec) {
+            if (!rec.hasOwnProperty(k)) continue;
+            out[k] = (typeof rec[k] === "string" && !inArray(KEEP_AS_IS, k)) ? normalizeHyphens(rec[k]) : rec[k];
+        }
+        var tel = digitsOf(out["TEL"] || ""), fax = digitsOf(out["FAX"] || "");
+        if (out.__telfax || (tel !== "" && tel === fax)) {
+            out["FAX"] = "";
+            out.__telfax = true;
+        }
+        return out;
+    }
+
+    // TEL の見出しを「TEL/FAX」にした文字（テンプレートの書き方に合わせる）
+    function telFaxLabel(label) {
+        var t = label.replace(/[ \t\u3000]/g, "");
+        if (t === "Tel") return label + "/Fax";
+        if (t === "ＴＥＬ") return label + "／ＦＡＸ";
+        return label + "/FAX";
+    }
+
     function prepareValues(rec) {
-        var v = {};
-        for (var k in rec) if (rec.hasOwnProperty(k)) v[k] = rec[k];
+        var v = normalizeRecord(rec);
         var company = v["会社名"] || "";
         var m = company.match(COMPANY_PREFIX);
         v["会社名_前"] = m ? m[1] : "";
@@ -437,6 +478,11 @@ var MeishiCore = (function () {
             var v = val(found[i].field);
             if (v !== "") {
                 var newValue = kanjiIfNeeded(line.substring(found[i].valueStart, vEnd), v, found[i].field);
+                if (found[i].field === "TEL" && values.__telfax) {
+                    // TEL と FAX が同じ番号 → 見出しを「TEL/FAX」に（見出しの書式のまま）
+                    add(found[i].labelStart, found[i].labelEnd,
+                        telFaxLabel(line.substring(found[i].labelStart, found[i].labelEnd)), "TEL");
+                }
                 if (found[i].colon && found[i].field !== "URL") {
                     // 「Tel : 」→「Tel：」（コロンの前後の空白をなくし、全角のコロンにする。URL はそのまま）
                     add(found[i].labelEnd, vEnd, COLON + newValue, found[i].field);
@@ -465,6 +511,9 @@ var MeishiCore = (function () {
                     var only = new RegExp("^" + WS + "*" + looseSource(LABELS[L2].words[w2]) + WS + "*[:：]?" + WS + "*$");
                     if (only.test(line) && val(LABELS[L2].field) === "" && isFree(0, line.length)) {
                         add(0, line.length, "", LABELS[L2].field);
+                    } else if (only.test(line) && LABELS[L2].field === "TEL" && values.__telfax && isFree(0, line.length)) {
+                        var lw = new RegExp(looseSource(LABELS[L2].words[w2])).exec(line);
+                        add(lw.index, lw.index + lw[0].length, telFaxLabel(lw[0]), "TEL");
                     }
                 }
             }
@@ -559,7 +608,7 @@ var MeishiCore = (function () {
     function unusedFields(rec, used) {
         var out = [];
         for (var k in rec) {
-            if (!rec.hasOwnProperty(k) || inArray(INFO_FIELDS, k)) continue;
+            if (!rec.hasOwnProperty(k) || inArray(INFO_FIELDS, k) || k.indexOf("__") === 0) continue;
             if (k === "会社名" && hasLogoData(rec)) continue;
             if (rec[k] !== "" && !inArray(used, k)) out.push(k);
         }
@@ -658,6 +707,8 @@ var MeishiCore = (function () {
         rowsToRecords: rowsToRecords,
         INFO_FIELDS: INFO_FIELDS,
         prepareValues: prepareValues,
+        normalizeRecord: normalizeRecord,
+        normalizeHyphens: normalizeHyphens,
         hasLogoData: hasLogoData,
         isLogoText: isLogoText,
         labelOnlyField: labelOnlyField,
