@@ -60,6 +60,39 @@ _URL_VALUE = re.compile(r"^(?:https?:?//\S+|www\.\S+|[A-Za-z0-9-]+(?:\.[A-Za-z0-
 _EMPTY_LABEL = re.compile(r"^(?:TEL|FAX|Mobile|携帯|E-?mail|URL|WEB|HP|ホームページ)\s*[：:]?\s*$", re.I)
 
 
+# 備考に書かれた「https://～」「http://～」（楽天の入力欄には https:// が入れられないため、備考に書かれることが多い）
+# 注文通知アプリの整形で「https//」になっていても拾う
+_REMARK_URL = re.compile(r"https?:?//[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+", re.I)
+
+
+def _urls_in_remark(text):
+    """備考の中の http(s):// で始まる URL を、書かれている順に返す。"""
+    out = []
+    for m in _REMARK_URL.finditer(unicodedata.normalize("NFKC", text or "")):
+        url = re.sub(r"^(https?):?//", r"\1://", m.group(0)).rstrip(".,;:!?")
+        if url not in out:
+            out.append(url)
+    return out
+
+
+def _bare(url):
+    """比べる用：https:// と www. と最後の / を取った URL"""
+    return re.sub(r"^(https?:?//)?(www\.)?", "", url.strip().lower()).rstrip("/")
+
+
+def _url_from_remark(card):
+    """備考に https://～ の URL があれば、名刺の URL にする。"""
+    urls = _urls_in_remark(card["備考"])
+    if not urls:
+        return
+    url, old = urls[0], card["URL"]
+    if old and _bare(old) != _bare(url):
+        _add_note(card, f"URL欄の「{old}」ではなく、備考の {url} を名刺に入れました")
+    card["URL"] = url
+    if len(urls) > 1:
+        _add_note(card, "備考に URL が2つ以上あります（最初の1つを入れました）: " + " / ".join(urls))
+
+
 def _url_of(line):
     """行が URL なら「https://…」の形にして返す。URL でなければ None。"""
     t = unicodedata.normalize("NFKC", line).strip()
@@ -215,6 +248,7 @@ def card_from_order(order, items):
         card["自由行"] = " / ".join(free_lines)
     if notes:
         card["備考"] = "\n".join(filter(None, [card["備考"]] + notes))
+    _url_from_remark(card)
     if not remark_has_content(card["備考"]):
         card["備考"] = ""   # お店の案内文だけなら流し込まない
     if not card["氏名"]:

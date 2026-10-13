@@ -110,6 +110,29 @@ class CardFromOrderTests(unittest.TestCase):
              "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nABCビル5F\nFAX：\nURL："}])
         self.assertEqual((c["住所1"], c["住所2"], c["URL"]), ("東京都千代田区丸の内1-2-3", "ABCビル5F", ""))
 
+    def test_url_from_remark(self):
+        def card(remark, address_url=""):
+            return M.card_from_order({"order_id": "1", "detail": ""}, [
+                {"label": "住所", "group": "address",
+                 "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nTEL：03-1111-2222" + ("\nURL：" + address_url if address_url else "")},
+                {"label": "", "value": "[備考]\n" + remark, "group": None}])
+        c = card("URLはこちらでお願いします https://artcode.jp/shop/ よろしくお願いします")
+        self.assertEqual(c["URL"], "https://artcode.jp/shop/")
+        self.assertIn("https://artcode.jp/shop/", c["備考"])                     # 備考はそのまま
+        self.assertEqual(card("ＵＲＬ：ｈｔｔｐ：／／ａｒｔｃｏｄｅ．ｊｐ。")["URL"], "http://artcode.jp")   # 全角で書かれていても
+        self.assertEqual(card("https//artcode.jp/")["URL"], "https://artcode.jp/")            # アプリの整形で「:」が消えていても
+        # URL 欄に https:// なしで入っていれば、備考の https:// 付きに置き換える（確認事項は出さない）
+        c = card("https://www.artcode.jp/", "artcode.jp")
+        self.assertEqual(c["URL"], "https://www.artcode.jp/")
+        self.assertNotIn("URL", c["確認事項"])
+        # URL 欄と違う URL なら、備考の方を入れて確認事項に出す
+        c = card("https://b.jp/ と https://c.jp/", "a.jp")
+        self.assertEqual(c["URL"], "https://b.jp/")
+        self.assertIn("a.jp", c["確認事項"])
+        self.assertIn("2つ以上", c["確認事項"])
+        # https:// のない備考では URL 欄はそのまま
+        self.assertEqual(card("急ぎでお願いします", "artcode.jp")["URL"], "artcode.jp")
+
     def test_write_csv(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "job", "meishi_job.csv")
