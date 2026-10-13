@@ -92,6 +92,24 @@ class CardFromOrderTests(unittest.TestCase):
         self.assertEqual(c["TEL"], "0451112222")
         self.assertIn("見出しのない電話番号", c["確認事項"])
 
+    def test_url_is_not_address(self):
+        # https:// で始まらない URL や、見出しの書き方が違う URL を住所2 にしない
+        for line, url in [("www.artcode.jp", "www.artcode.jp"),
+                          ("artcode.jp", "artcode.jp"),
+                          ("ＵＲＬ：https://artcode.jp/", "https://artcode.jp/"),
+                          ("URL https://artcode.jp/", "https://artcode.jp/"),
+                          ("ホームページ：www.artcode.jp", "www.artcode.jp"),
+                          ("https//artcode.jp/", "https://artcode.jp/")]:
+            c = M.card_from_order({"order_id": "1", "detail": ""}, [
+                {"label": "住所", "group": "address",
+                 "value": "〒100-0005\n東京都千代田区\n丸の内1-2-3\nTEL：03-1111-2222\n" + line}])
+            self.assertEqual((c["住所1"], c["住所2"], c["URL"]), ("東京都千代田区丸の内1-2-3", "", url), line)
+        # 見出しだけの行も住所にしない。建物名はそのまま住所2
+        c = M.card_from_order({"order_id": "1", "detail": ""}, [
+            {"label": "住所", "group": "address",
+             "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nABCビル5F\nFAX：\nURL："}])
+        self.assertEqual((c["住所1"], c["住所2"], c["URL"]), ("東京都千代田区丸の内1-2-3", "ABCビル5F", ""))
+
     def test_write_csv(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "job", "meishi_job.csv")

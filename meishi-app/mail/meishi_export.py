@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 import urllib.parse
 
 # 作った名刺の保存先
@@ -50,6 +51,23 @@ _CONTACT = [
     ("URL", re.compile(r"^(?:WEB|URL|HP)" + _COLON + r"\s*(.+)", re.I)),
 ]
 _PHONE = re.compile(r"^\+?[\d\-()（） ]{10,16}$")
+
+# 住所のまとまりの中の URL（「https://」で始まらない書き方も）。これを住所と間違えると、
+# 名刺で住所のすぐ下（住所と TEL の間）に URL が入ってしまう
+_URL_LABEL = re.compile(r"^(?:URL|WEB|HP|ホームページ|ウェブサイト|WEBサイト|Web\s*site|サイト)\s*[：:]?\s*", re.I)
+_URL_VALUE = re.compile(r"^(?:https?:?//\S+|www\.\S+|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:/\S*)?)$", re.I)
+# 見出しだけで値のない行（「URL：」「FAX：」など。お客さんが空欄にしたとき）
+_EMPTY_LABEL = re.compile(r"^(?:TEL|FAX|Mobile|携帯|E-?mail|URL|WEB|HP|ホームページ)\s*[：:]?\s*$", re.I)
+
+
+def _url_of(line):
+    """行が URL なら「https://…」の形にして返す。URL でなければ None。"""
+    t = unicodedata.normalize("NFKC", line).strip()
+    m = _URL_LABEL.match(t)
+    rest = t[m.end():] if m else t
+    if not _URL_VALUE.match(rest):
+        return None
+    return re.sub(r"^(https?):?//", r"\1://", rest)
 
 
 def remark_has_content(text):
@@ -127,9 +145,12 @@ def _read_address_block(card, block):
                     card[field] = re.sub(r"^(https?):?//", r"\1://", card[field])
                 break
         else:
-            if re.match(r"^https?:?//", line):
-                # 注文通知アプリの整形で「https//」になっていることがあるので戻す
-                card["URL"] = re.sub(r"^(https?):?//", r"\1://", line)
+            url = _url_of(line)
+            if _EMPTY_LABEL.match(unicodedata.normalize("NFKC", line)):
+                continue          # 値のない見出しは住所にしない
+            if url:
+                # 「www.～」「ＵＲＬ　https://～」なども URL に（注文通知アプリの整形で「https//」になっていても戻す）
+                card["URL"] = url
             elif _PHONE.match(line):
                 field = "携帯" if re.match(r"^0[789]0", line) else "TEL"
                 card[field] = line
