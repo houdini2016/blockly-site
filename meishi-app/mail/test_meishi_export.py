@@ -89,7 +89,7 @@ class CardFromOrderTests(unittest.TestCase):
             {"label": "住所", "group": "address",
              "value": "〒231-0001\n神奈川県横浜市中区新港1-1-1\n0451112222"}])
         self.assertEqual((c["住所1"], c["住所2"]), ("神奈川県横浜市中区新港1-1-1", ""))
-        self.assertEqual(c["TEL"], "0451112222")
+        self.assertEqual(c["TEL"], "045-111-2222")   # ハイフンも入れる
         self.assertIn("見出しのない電話番号", c["確認事項"])
 
     def test_url_is_not_address(self):
@@ -132,6 +132,29 @@ class CardFromOrderTests(unittest.TestCase):
         self.assertIn("2つ以上", c["確認事項"])
         # https:// のない備考では URL 欄はそのまま
         self.assertEqual(card("急ぎでお願いします", "artcode.jp")["URL"], "artcode.jp")
+
+    def test_format_phone(self):
+        cases = {"0930310490": "0930-31-0490",      # 4桁の市外局番（行橋）
+                 "0312345678": "03-1234-5678",      # 東京
+                 "0661234567": "06-6123-4567",      # 大阪
+                 "0451112222": "045-111-2222",      # 横浜
+                 "0471234567": "04-7123-4567",      # 柏（04）
+                 "0479223456": "0479-22-3456",      # 銚子
+                 "0467123456": "0467-12-3456",      # 藤沢
+                 "0139123456": "0139-12-3456",
+                 "09012345678": "090-1234-5678",
+                 "05012345678": "050-1234-5678",
+                 "0120123456": "0120-123-456",
+                 "08001234567": "0800-123-4567",
+                 "０９３０３１０４９０": "0930-31-0490"}  # 全角の数字
+        for raw, want in cases.items():
+            self.assertEqual(M.format_phone(raw), want, raw)
+        for keep in ("0930-31-0490", "093031049", "", "+81-3-1234-5678"):   # ハイフン入り・桁数違いはそのまま
+            self.assertEqual(M.format_phone(keep), keep)
+        c = M.card_from_order({"order_id": "1", "detail": ""}, [
+            {"label": "住所", "group": "address",
+             "value": "〒824-0001\n福岡県行橋市行事1-1-1\nTEL：0930310490\nFAX：0930310491\nMobile：09012345678"}])
+        self.assertEqual((c["TEL"], c["FAX"], c["携帯"]), ("0930-31-0490", "0930-31-0491", "090-1234-5678"))
 
     def test_write_csv(self):
         with tempfile.TemporaryDirectory() as d:
