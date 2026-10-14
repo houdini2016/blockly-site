@@ -274,7 +274,7 @@ test("縦書きの氏名: ふりがなは右どなりに縦書きで", function 
     var doc = makeDoc([["鈴木\r\u3000花子", [300, -400, 310, -480]]]);
     doc.textFrames[0].orientation = "vertical";
     AI.editDocument(doc, { "氏名": "山田 太郎", "ふりがな": "やまだ たろう" }, []);
-    assert.strictEqual(doc.textFrames[0].contents, "山田\r\u3000太郎");
+    assert.strictEqual(doc.textFrames[0].contents, "山\u3000田\r\u3000太\u3000郎");   // 4文字は等間隔
     assert.strictEqual(doc.added[0].orientation, "vertical");
     assert.deepStrictEqual(doc.added[0].position, [311, -400]);
 });

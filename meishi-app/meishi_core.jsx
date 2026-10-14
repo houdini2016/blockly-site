@@ -391,14 +391,15 @@ var MeishiCore = (function () {
 
                 var name = values["氏名"] || "";
                 var parts = name.match(/^([^ \t\u3000]+)[ \t\u3000]+(.+)$/);
+                var total = name.replace(/[ \t\u3000]+/g, "").length;
                 if (name === "") {
                     edits.push({ start: ms, end: me, text: "", field: "氏名" });
                 } else if (parts) {
-                    edits.push({ start: ms, end: p1e, text: matchSpacing(contents.substring(ms, p1e), parts[1]), field: "氏名" });
-                    edits.push({ start: p2s, end: me, text: matchSpacing(contents.substring(p2s, me), parts[2]), field: "氏名" });
+                    edits.push({ start: ms, end: p1e, text: nameSpacing(contents.substring(ms, p1e), parts[1], total), field: "氏名" });
+                    edits.push({ start: p2s, end: me, text: nameSpacing(contents.substring(p2s, me), parts[2], total), field: "氏名" });
                 } else {
                     // 姓と名の間に空白がなく分けられない → 1行目にまとめて、2行目は消す
-                    edits.push({ start: ms, end: p1e, text: matchSpacing(contents.substring(ms, p1e), name), field: "氏名" });
+                    edits.push({ start: ms, end: p1e, text: nameSpacing(contents.substring(ms, p1e), name), field: "氏名" });
                     edits.push({ start: p1e, end: me, text: "", field: "氏名" });
                     notes.push("氏名を姓と名に分けられなかったので1行で入れました: " + name);
                 }
@@ -575,7 +576,8 @@ var MeishiCore = (function () {
                     if (keepLogo) { add(ms, me, line.substring(ms, me), "(そのまま)", "(そのまま)"); continue; }
                     var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;
                     var nv = kanjiIfNeeded(line.substring(ms, me), val(field), field);
-                    if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);
+                    if (nv !== "" && field === "氏名") nv = nameSpacing(line.substring(ms, me), nv);
+                    else if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);
                     // 値が空のときは「  : ooooo@...」の「:」も一緒に消す
                     if (nv === "") while (ms > 0 && /[ \t\u3000:：]/.test(line.charAt(ms - 1))) ms--;
                     add(ms, me, nv, field, ph.usedAs);
@@ -583,6 +585,18 @@ var MeishiCore = (function () {
             }
         }
         return edits;
+    }
+
+    // 氏名の書き方：4文字の名前（「山田花子」「山田 花子」など）だけ、1文字ずつ空けて等間隔にする
+    //   （空け方は、仮の文字が「鈴　木　太　郎」のように空いていればそれに合わせ、なければ全角スペース）。
+    //   それ以外の文字数（「林 太郎」「佐々木 一郎」など）と、英字の名前は、お客さんの入力どおり。
+    //   total: 名前全体の文字数（2行に分けて入れるときも、名前全体で4文字かどうかで決める）
+    function nameSpacing(placeholderText, value, total) {
+        var chars = String(value).replace(/[ \t\u3000]+/g, "");
+        var all = (total === undefined) ? chars.length : total;
+        if (all !== 4 || /[A-Za-z]/.test(chars)) return value;
+        var m = String(placeholderText || "").match(/^[^ \t\u3000\r\n]([ \t\u3000]+)[^ \t\u3000]/);
+        return chars.split("").join(m ? m[1] : "\u3000");
     }
 
     // 仮の文字が「鈴　木　太　郎」のように1文字ずつ空いていたら、
@@ -718,6 +732,7 @@ var MeishiCore = (function () {
         planEdits: planEdits,
         applyEditsToString: applyEditsToString,
         matchSpacing: matchSpacing,
+        nameSpacing: nameSpacing,
         unusedFields: unusedFields,
         hasLeftover: hasLeftover,
         detectEncoding: detectEncoding,

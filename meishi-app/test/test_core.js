@@ -212,12 +212,13 @@ test("漢数字: 仮の文字が〇なら数字を漢数字にする（○の普
 
 // ---- 2行に分かれた氏名（wa_yoko001 など） ---------------------------
 test("2行の氏名: 「鈴木」「　花子」→ 姓と名に分けて入れる（字下げは残す）", function () {
-    assert.strictEqual(run("鈴木\r\u3000花子", { "氏名": "山田 太郎" }).text, "山田\r\u3000太郎");
+    assert.strictEqual(run("鈴木\r\u3000花子", { "氏名": "山田 太郎" }).text, "山\u3000田\r\u3000太\u3000郎");   // 4文字は等間隔
+    assert.strictEqual(run("鈴木\r\u3000花子", { "氏名": "佐々木 一郎" }).text, "佐々木\r\u3000一郎");     // 5文字は入力どおり
     assert.strictEqual(run("鈴\u3000木\r\u3000花\u3000子", { "氏名": "山田\u3000太郎" }).text, "山\u3000田\r\u3000太\u3000郎");
     var plan = C.planEdits("鈴木\r\u3000花子", { "氏名": "山田太郎" });
-    assert.strictEqual(C.applyEditsToString("鈴木\r\u3000花子", plan.edits), "山田太郎");   // 分けられない → 1行
+    assert.strictEqual(C.applyEditsToString("鈴木\r\u3000花子", plan.edits), "山\u3000田\u3000太\u3000郎");   // 分けられない → 1行（4文字なので等間隔）
     assert.strictEqual(plan.notes.length, 1);
-    assert.strictEqual(run("取締役社長\r鈴木\r\u3000花子", { "氏名": "山田 太郎", "肩書": "部長" }).text, "部長\r山田\r\u3000太郎");
+    assert.strictEqual(run("取締役社長\r鈴木\r\u3000花子", { "氏名": "山田 太郎", "肩書": "部長" }).text, "部長\r山\u3000田\r\u3000太\u3000郎");
     assert.deepStrictEqual(C.unusedFields({ "氏名": "山田 太郎" }, C.planEdits("鈴木\r\u3000花子", { "氏名": "山田 太郎" }).used), []);
 });
 
@@ -343,6 +344,24 @@ test("TEL と FAX が同じ番号なら TEL/FAX：1つにまとめる", function
     // FAX の差し込み先が余らない（中心から5cm上に入れない）
     var plan = C.planEdits("TEL : 000-000-0000", rec);
     assert.deepStrictEqual(C.unusedFields(C.normalizeRecord(rec), plan.used), []);
+});
+
+test("氏名: 4文字だけ1文字ずつ空けて等間隔、それ以外は入力どおり", function () {
+    function name(tpl, n) { return run(tpl, { "氏名": n }).text; }
+    // 1文字ずつ空いたテンプレート（全角スペース）
+    var spaced = "鈴\u3000木\u3000太\u3000郎";
+    assert.strictEqual(name(spaced, "山田 花子"), "山\u3000田\u3000花\u3000子");
+    assert.strictEqual(name(spaced, "山田花子"), "山\u3000田\u3000花\u3000子");
+    assert.strictEqual(name(spaced, "林 太郎"), "林 太郎");
+    assert.strictEqual(name(spaced, "佐々木 一郎"), "佐々木 一郎");
+    assert.strictEqual(name(spaced, "佐々木一郎"), "佐々木一郎");
+    // 空いていないテンプレートでも4文字は全角スペースで空ける
+    assert.strictEqual(name("佐藤一郎", "山田花子"), "山\u3000田\u3000花\u3000子");
+    assert.strictEqual(name("佐藤一郎", "山田 太郎丸"), "山田 太郎丸");
+    // 半角スペースで空いたテンプレートなら半角スペース
+    assert.strictEqual(name("佐 藤 一 郎", "山田花子"), "山 田 花 子");
+    // 英字の名前はそのまま
+    assert.strictEqual(C.nameSpacing("", "Taro"), "Taro");
 });
 
 test("文字コードの判定", function () {
