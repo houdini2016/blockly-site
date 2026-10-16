@@ -247,7 +247,7 @@ test("部署名: 肩書の上に、肩書と同じフォントで 8pt（肩書�
     assert.strictEqual(d.textRange.characterAttributes.size, 8);
     assert.strictEqual(d.textRange.characterAttributes.textFont, "肩書のフォント");
     assert.deepStrictEqual(d.position, [290 - 40, -381 + 1 + 6]);   // 右そろえ・肩書の 1pt 上
-    assert.strictEqual(doc.textFrames[0].contents, "部\u3000長");   // 肩書には部署を混ぜない
+    assert.strictEqual(doc.textFrames[0].contents, "部長");   // 肩書には部署を混ぜない
 });
 
 test("部署名: 肩書が空なら、肩書があった場所に肩書のフォントで入れる", function () {

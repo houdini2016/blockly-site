@@ -54,14 +54,13 @@ var MeishiCore = (function () {
     //  2. テンプレートに入っている「仮の文字」→ 項目名
     //     テンプレートの仮の文字が増えたら、ここに足していきます。
     //     ・空白（半角・全角）は無視して探します（鈴　木　太　郎 も鈴木太郎も同じ）
-    //     ・spaced: true の項目は、仮の文字が1文字ずつ空けてあれば
-    //       お客さんの名前も同じ空け方にそろえます
+    //     ・氏名は 4文字のときだけ1文字ずつ空けます（nameSpacing）。肩書などはお客さんの入力どおり
     //     ・wholeLine: true の項目は「その行がその文字だけ」のときだけ置き換えます
     // -----------------------------------------------------------------
     //     ・usedAs は「差し込み先あり」の判定に使う元の項目名
     //     ・○ と 〇 は同じ文字として探します。同じ項目の中では長い文字から先に探します
     var PLACEHOLDERS = [
-        { field: "氏名",       spaced: true,
+        { field: "氏名",
           texts: ["鈴木太郎", "鈴木花子", "鈴木一郎", "佐藤一郎", "海山川地", "中村絵美"] },
         // 「ロゴデータ」が無しなら LOGO の位置に会社名が入る（有りならロゴを手作業で配置）
         { field: "会社名",     wholeLine: true, logo: true,
@@ -77,8 +76,8 @@ var MeishiCore = (function () {
         { field: "会社名_前",  wholeLine: true, usedAs: "会社名", logo: true, texts: ["株式会社"] },
         { field: "会社名_後",  wholeLine: true, usedAs: "会社名", logo: true,
           texts: ["○○商事", "○○○商事", "○○○○商事", "○○○○○商事", "●●商事", "海山商事"] },
-        { field: "肩書",       texts: ["代表取締役"], spaced: true },
-        { field: "肩書",       wholeLine: true, spaced: true,
+        { field: "肩書",       texts: ["代表取締役"] },
+        { field: "肩書",       wholeLine: true,
           texts: ["店長", "オーナー", "ショップオーナー", "取締役社長", "代表", "営業事務", "営業課長", "課長",
                   "保育士", "料理長", "料理研究家", "ライター", "シンガーソングライター", "スタイリスト",
                   "インストラクター", "司書補", "カメラマン", "バイヤー", "先生", "ボランティア"] },
@@ -577,7 +576,6 @@ var MeishiCore = (function () {
                     var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;
                     var nv = kanjiIfNeeded(line.substring(ms, me), val(field), field);
                     if (nv !== "" && field === "氏名") nv = nameSpacing(line.substring(ms, me), nv);
-                    else if (nv !== "" && ph.spaced) nv = matchSpacing(line.substring(ms, me), nv);
                     // 値が空のときは「  : ooooo@...」の「:」も一緒に消す
                     if (nv === "") while (ms > 0 && /[ \t\u3000:：]/.test(line.charAt(ms - 1))) ms--;
                     add(ms, me, nv, field, ph.usedAs);
@@ -599,16 +597,6 @@ var MeishiCore = (function () {
         return chars.split("").join(m ? m[1] : "\u3000");
     }
 
-    // 仮の文字が「鈴　木　太　郎」のように1文字ずつ空いていたら、
-    // お客さんの名前「山田 花子」も「山　田　花　子」にそろえる
-    function matchSpacing(placeholderText, value) {
-        var m = placeholderText.match(/^[^ \t\u3000]([ \t\u3000]+)[^ \t\u3000]/);
-        if (!m) return value;
-        var chars = value.replace(/[ \t\u3000]+/g, "");
-        var out = [];
-        for (var i = 0; i < chars.length; i++) out.push(chars.charAt(i));
-        return out.join(m[1]);
-    }
 
     // edits を文字列に当てはめた結果を返す（後ろから置き換える）
     function applyEditsToString(s, edits) {
@@ -731,7 +719,6 @@ var MeishiCore = (function () {
         labelOnlyField: labelOnlyField,
         planEdits: planEdits,
         applyEditsToString: applyEditsToString,
-        matchSpacing: matchSpacing,
         nameSpacing: nameSpacing,
         unusedFields: unusedFields,
         hasLeftover: hasLeftover,

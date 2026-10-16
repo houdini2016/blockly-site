@@ -163,7 +163,7 @@ test("増やした仮の文字: ROGO・店長・2行の住所・縦書きの電�
     var rec = { "会社名": "有限会社テスト", "ロゴデータ": "無し", "肩書": "部長", "住所1": "東京都港区1-2-3",
                 "住所2": "ABCビル2F", "TEL": "03-1111-2222", "FAX": "" };
     assert.strictEqual(run("ROGO", rec).text, "有限会社テスト");
-    assert.strictEqual(run("店\u3000長", rec).text, "部\u3000長");
+    assert.strictEqual(run("店\u3000長", rec).text, "部長");   // 肩書は入力どおり（空けない）
     assert.strictEqual(run("○○○県○○市○○町\r00-00-0○○○○000号", rec).text, "東京都港区1-2-3\rABCビル2F");
     assert.strictEqual(run("電\u3000話\u3000〇〇〇ー〇〇〇ー〇〇〇〇\rFAX\u3000〇〇〇ー〇〇〇ー〇〇〇〇", rec).text,
                        "電\u3000話\u3000〇三ー一一一一ー二二二二");   // 漢数字のテンプレートなので漢数字に
@@ -362,6 +362,14 @@ test("氏名: 4文字だけ1文字ずつ空けて等間隔、それ以外は入�
     assert.strictEqual(name("佐 藤 一 郎", "山田花子"), "山 田 花 子");
     // 英字の名前はそのまま
     assert.strictEqual(C.nameSpacing("", "Taro"), "Taro");
+});
+
+test("肩書: 1文字ずつ空いたテンプレートでも、お客さんの入力どおり（4文字でも空けない）", function () {
+    assert.strictEqual(run("代\u3000表\u3000取\u3000締\u3000役", { "肩書": "営業部長" }).text, "営業部長");
+    assert.strictEqual(run("店\u3000長", { "肩書": "代表取締役" }).text, "代表取締役");
+    assert.strictEqual(run("店長", { "肩書": "営業 部長" }).text, "営業 部長");
+    assert.strictEqual(run("代表取締役鈴\u3000木\u3000太\u3000郎", { "肩書": "部長", "氏名": "山田花子" }).text,
+                       "部長山\u3000田\u3000花\u3000子");                    // 氏名は4文字なので空ける
 });
 
 test("文字コードの判定", function () {
