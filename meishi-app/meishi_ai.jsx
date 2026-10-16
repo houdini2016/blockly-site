@@ -467,7 +467,8 @@ var MeishiAI = (function () {
     var FALLBACK_PREFIX = { "郵便番号": "〒", "TEL": "TEL：", "FAX": "FAX：", "携帯": "Mobile：", "メール": "E-mail：" };
 
     function fallbackLine(field, value, rec) {
-        if (field === "氏名") return C.nameSpacing("", value);        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX：" + value;
+        if (field === "氏名") return C.nameSpacing("", value);
+        if (field === "肩書") return C.titleSpacing(value);        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX：" + value;
         return (FALLBACK_PREFIX[field] || "") + value;
     }
 
@@ -500,6 +501,7 @@ var MeishiAI = (function () {
                     if (tf.name === "肩書" && !titleInfo) titleInfo = captureInfo(tf, 0, f);
                     var whole = values[tf.name] || "";
                     if (tf.name === "氏名") whole = C.nameSpacing(tf.contents, whole);   // 4文字の名前は等間隔に
+                    if (tf.name === "肩書") whole = C.titleSpacing(whole);                // 2文字の肩書は「部 長」
                     if (tf.contents !== "") replaceRange(tf, 0, tf.contents.length, whole);
                     if (FIELD_SIZES.hasOwnProperty(tf.name) && tf.contents !== "") setSize(tf, 0, tf.contents.length, FIELD_SIZES[tf.name]);
                     if (FIELD_TRACKING.hasOwnProperty(tf.name) && tf.contents !== "") setTracking(tf, 0, tf.contents.length, FIELD_TRACKING[tf.name]);

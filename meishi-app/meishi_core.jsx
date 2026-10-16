@@ -54,7 +54,8 @@ var MeishiCore = (function () {
     //  2. テンプレートに入っている「仮の文字」→ 項目名
     //     テンプレートの仮の文字が増えたら、ここに足していきます。
     //     ・空白（半角・全角）は無視して探します（鈴　木　太　郎 も鈴木太郎も同じ）
-    //     ・氏名は 4文字のときだけ1文字ずつ空けます（nameSpacing）。肩書などはお客さんの入力どおり
+    //     ・氏名は 4文字のときだけ1文字ずつ空けます（nameSpacing）。
+    //       肩書は 2文字のときだけ間に半角スペース（titleSpacing）。それ以外はお客さんの入力どおり
     //     ・wholeLine: true の項目は「その行がその文字だけ」のときだけ置き換えます
     // -----------------------------------------------------------------
     //     ・usedAs は「差し込み先あり」の判定に使う元の項目名
@@ -237,6 +238,14 @@ var MeishiCore = (function () {
         if (t === "Tel") return label + "/Fax";
         if (t === "ＴＥＬ") return label + "／ＦＡＸ";
         return label + "/FAX";
+    }
+
+    // 肩書の書き方：2文字の肩書（「部長」「店長」など）だけ、間に半角スペースを入れる（「部 長」）。
+    //   それ以外の文字数と英字の肩書は、お客さんの入力どおり
+    function titleSpacing(value) {
+        var chars = String(value).replace(/[ \t\u3000]+/g, "");
+        if (chars.length !== 2 || /[A-Za-z]/.test(chars)) return value;
+        return chars.charAt(0) + " " + chars.charAt(1);
     }
 
     function prepareValues(rec) {
@@ -576,6 +585,7 @@ var MeishiCore = (function () {
                     var field = (ph.altField && val(ph.altField) !== "") ? ph.altField : ph.field;
                     var nv = kanjiIfNeeded(line.substring(ms, me), val(field), field);
                     if (nv !== "" && field === "氏名") nv = nameSpacing(line.substring(ms, me), nv);
+                    if (nv !== "" && field === "肩書") nv = titleSpacing(nv);
                     // 値が空のときは「  : ooooo@...」の「:」も一緒に消す
                     if (nv === "") while (ms > 0 && /[ \t\u3000:：]/.test(line.charAt(ms - 1))) ms--;
                     add(ms, me, nv, field, ph.usedAs);
@@ -720,6 +730,7 @@ var MeishiCore = (function () {
         planEdits: planEdits,
         applyEditsToString: applyEditsToString,
         nameSpacing: nameSpacing,
+        titleSpacing: titleSpacing,
         unusedFields: unusedFields,
         hasLeftover: hasLeftover,
         detectEncoding: detectEncoding,

@@ -112,7 +112,7 @@ test("business008: 流し込みとLOGO横のマーク削除", function () {
     AI.editDocument(doc, REC, w);
     var t = doc.textFrames.map(function (f) { return f.contents; });
     assert.strictEqual(t[0], "株式会社サンプル");
-    assert.strictEqual(t[1], "部長山　田　太　郎");
+    assert.strictEqual(t[1], "部 長山　田　太　郎");
     assert.strictEqual(t[2], "〒100-0005");
     assert.strictEqual(t[3], "東京都千代田区丸の内1-2-3\rTe l：03-1234-5678\rMobile：090-1111-2222\r" +
                              "E-mail：taro@example.co.jp\rhttps://example.co.jp/");
@@ -247,7 +247,7 @@ test("部署名: 肩書の上に、肩書と同じフォントで 8pt（肩書�
     assert.strictEqual(d.textRange.characterAttributes.size, 8);
     assert.strictEqual(d.textRange.characterAttributes.textFont, "肩書のフォント");
     assert.deepStrictEqual(d.position, [290 - 40, -381 + 1 + 6]);   // 右そろえ・肩書の 1pt 上
-    assert.strictEqual(doc.textFrames[0].contents, "部長");   // 肩書には部署を混ぜない
+    assert.strictEqual(doc.textFrames[0].contents, "部 長");   // 肩書には部署を混ぜない（2文字なので半角スペース）
 });
 
 test("部署名: 肩書が空なら、肩書があった場所に肩書のフォントで入れる", function () {

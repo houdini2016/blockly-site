@@ -163,7 +163,7 @@ test("増やした仮の文字: ROGO・店長・2行の住所・縦書きの電�
     var rec = { "会社名": "有限会社テスト", "ロゴデータ": "無し", "肩書": "部長", "住所1": "東京都港区1-2-3",
                 "住所2": "ABCビル2F", "TEL": "03-1111-2222", "FAX": "" };
     assert.strictEqual(run("ROGO", rec).text, "有限会社テスト");
-    assert.strictEqual(run("店\u3000長", rec).text, "部長");   // 肩書は入力どおり（空けない）
+    assert.strictEqual(run("店\u3000長", rec).text, "部 長");   // 2文字の肩書は半角スペース
     assert.strictEqual(run("○○○県○○市○○町\r00-00-0○○○○000号", rec).text, "東京都港区1-2-3\rABCビル2F");
     assert.strictEqual(run("電\u3000話\u3000〇〇〇ー〇〇〇ー〇〇〇〇\rFAX\u3000〇〇〇ー〇〇〇ー〇〇〇〇", rec).text,
                        "電\u3000話\u3000〇三ー一一一一ー二二二二");   // 漢数字のテンプレートなので漢数字に
@@ -218,7 +218,7 @@ test("2行の氏名: 「鈴木」「　花子」→ 姓と名に分けて入れ�
     var plan = C.planEdits("鈴木\r\u3000花子", { "氏名": "山田太郎" });
     assert.strictEqual(C.applyEditsToString("鈴木\r\u3000花子", plan.edits), "山\u3000田\u3000太\u3000郎");   // 分けられない → 1行（4文字なので等間隔）
     assert.strictEqual(plan.notes.length, 1);
-    assert.strictEqual(run("取締役社長\r鈴木\r\u3000花子", { "氏名": "山田 太郎", "肩書": "部長" }).text, "部長\r山\u3000田\r\u3000太\u3000郎");
+    assert.strictEqual(run("取締役社長\r鈴木\r\u3000花子", { "氏名": "山田 太郎", "肩書": "部長" }).text, "部 長\r山\u3000田\r\u3000太\u3000郎");
     assert.deepStrictEqual(C.unusedFields({ "氏名": "山田 太郎" }, C.planEdits("鈴木\r\u3000花子", { "氏名": "山田 太郎" }).used), []);
 });
 
@@ -293,7 +293,7 @@ test("1行に2つ: 行の頭の項目が空なら、区切りの全角スペー�
 // ---- その他 ---------------------------------------------------------
 test("部署は肩書に混ぜない（別のテキストとして肩書の上に入れる）", function () {
     var r = run("代表取締役", { "部署": "営業部", "肩書": "部長" });
-    assert.strictEqual(r.text, "部長");
+    assert.strictEqual(r.text, "部 長");
 });
 
 test("差し込み先がない項目を見つける", function () {
@@ -364,12 +364,16 @@ test("氏名: 4文字だけ1文字ずつ空けて等間隔、それ以外は入�
     assert.strictEqual(C.nameSpacing("", "Taro"), "Taro");
 });
 
-test("肩書: 1文字ずつ空いたテンプレートでも、お客さんの入力どおり（4文字でも空けない）", function () {
+test("肩書: 2文字だけ半角スペースを入れる。それ以外は入力どおり（テンプレートの空け方には合わせない）", function () {
     assert.strictEqual(run("代\u3000表\u3000取\u3000締\u3000役", { "肩書": "営業部長" }).text, "営業部長");
     assert.strictEqual(run("店\u3000長", { "肩書": "代表取締役" }).text, "代表取締役");
     assert.strictEqual(run("店長", { "肩書": "営業 部長" }).text, "営業 部長");
+    assert.strictEqual(run("店長", { "肩書": "部長" }).text, "部 長");
+    assert.strictEqual(run("店\u3000長", { "肩書": "社\u3000長" }).text, "社 長");
+    assert.strictEqual(run("店長", { "肩書": "CEO" }).text, "CEO");
+    assert.strictEqual(C.titleSpacing("PR"), "PR");                                // 英字はそのまま
     assert.strictEqual(run("代表取締役鈴\u3000木\u3000太\u3000郎", { "肩書": "部長", "氏名": "山田花子" }).text,
-                       "部長山\u3000田\u3000花\u3000子");                    // 氏名は4文字なので空ける
+                       "部 長山\u3000田\u3000花\u3000子");                    // 氏名は4文字なので空ける
 });
 
 test("文字コードの判定", function () {
