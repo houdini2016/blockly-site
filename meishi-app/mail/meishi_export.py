@@ -27,7 +27,7 @@ PREFS_FILE = os.path.expanduser("~/.chumon_notifier_meishi.json")
 CSV_COLUMNS = [
     "注文番号", "モール", "注文者", "テンプレート", "保存先",
     "会社名", "部署", "肩書", "氏名", "ふりがな", "氏名英字", "肩書英字",
-    "郵便番号", "住所1", "住所2", "TEL", "FAX", "携帯", "メール", "URL",
+    "郵便番号", "住所1", "住所2", "TEL", "FAX", "携帯", "メール", "URL", "SNS",
     "ロゴデータ", "自由行", "備考", "確認事項",
 ]
 
@@ -223,6 +223,22 @@ def format_phone(num):
     return num
 
 
+# Yahoo! の「ソーシャル（LINE/Facebookなど）：～」の行（見出しのかっこ書きや「：」がなくても）
+_SOCIAL = re.compile(r"^(?:ソーシャル|SNS|ＳＮＳ)(?:\s*[（(][^）)]*[）)])?\s*[：:]?\s*(.+)$", re.I)
+
+
+def _social_of(line):
+    """行がソーシャル（SNS）の項目なら、その値を返す。違えば None。"""
+    m = _SOCIAL.match(line.strip())   # 値はお客さんの書いたまま（全角・半角を変えない）
+    return m.group(1).strip() if m else None
+
+
+def _add_social(card, value):
+    """SNS の値を足す（LINE と Instagram など2つ以上あれば改行で並べる）"""
+    if value and value not in card["SNS"].split("\n"):
+        card["SNS"] = (card["SNS"] + "\n" + value) if card["SNS"] else value
+
+
 def _url_of(line):
     """行が URL なら「https://…」の形にして返す。URL でなければ None。"""
     t = unicodedata.normalize("NFKC", line).strip()
@@ -311,7 +327,9 @@ def _read_address_block(card, block):
             url = _url_of(line)
             if _EMPTY_LABEL.match(unicodedata.normalize("NFKC", line)):
                 continue          # 値のない見出しは住所にしない
-            if url:
+            if _social_of(line) is not None:
+                _add_social(card, _social_of(line))   # ソーシャルは住所にしない
+            elif url:
                 # 「www.～」「ＵＲＬ　https://～」なども URL に（注文通知アプリの整形で「https//」になっていても戻す）
                 card["URL"] = url
             elif _PHONE.match(line):
@@ -363,6 +381,8 @@ def card_from_order(order, items):
                 notes.append(body)
         elif "ロゴデータ" in value:
             card["ロゴデータ"] = _option_value(value)
+        elif _social_of(value) is not None:
+            _add_social(card, _social_of(value))   # Yahoo! のソーシャル（LINE/Facebookなど）
 
     # 氏名のあとに（ふりがな）が付いている場合は分ける
     m = re.match(r"^(.+?)\s*[（(]([^()（）]+)[)）]\s*$", card["氏名"])
@@ -592,6 +612,7 @@ JOB_JSX = (
     '        "\\u643A\\u5E2F":       ["\\u643A\\u5E2F", "\\u643A\\u5E2F\\u96FB\\u8A71", "Mobile"],\n'
     '        "\\u30E1\\u30FC\\u30EB":     ["\\u30E1\\u30FC\\u30EB", "\\u30E1\\u30FC\\u30EB\\u30A2\\u30C9\\u30EC\\u30B9", "E-mail", "Email"],\n'
     '        "URL":        ["URL", "\\u30DB\\u30FC\\u30E0\\u30DA\\u30FC\\u30B8", "Web\\u30B5\\u30A4\\u30C8"],\n'
+    '        "SNS":        ["SNS", "\\u30BD\\u30FC\\u30B7\\u30E3\\u30EB"],\n'
     '        // \\u4EE5\\u4E0B\\u306F\\u540D\\u523A\\u306B\\u76F4\\u63A5\\u306F\\u5165\\u3089\\u306A\\u3044\\u9805\\u76EE\\uFF08\\u51E6\\u7406\\u7D50\\u679C\\u306E\\u300C\\u8981\\u78BA\\u8A8D\\u300D\\u306B\\u8868\\u793A\\u3059\\u308B\\uFF09\n'
     '        "\\u30E2\\u30FC\\u30EB":     ["\\u30E2\\u30FC\\u30EB"],\n'
     '        "\\u3075\\u308A\\u304C\\u306A":   ["\\u3075\\u308A\\u304C\\u306A", "\\u30D5\\u30EA\\u30AC\\u30CA"],\n'
@@ -931,6 +952,7 @@ JOB_JSX = (
     '                break;\n'
     '            }\n'
     '        }\n'
+    '        if (opts.snsAfter && values["SNS"]) addSnsLine(contents, edits, values["SNS"], opts.snsAfter, used);\n'
     '        edits.sort(function (a, b) { return a.start - b.start; });\n'
     '        return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover, notes: notes,\n'
     '                 fieldPos: fieldPos };\n'
@@ -1154,6 +1176,21 @@ JOB_JSX = (
     '        return edits;\n'
     '    }\n'
     '\n'
+    '    // SNS\\uFF08Yahoo! \\u306E\\u30BD\\u30FC\\u30B7\\u30E3\\u30EB\\uFF09\\u306F\\u3001\\u305D\\u306E\\u9805\\u76EE\\uFF08\\u3075\\u3064\\u3046\\u306F E-mail\\uFF09\\u306E\\u884C\\u306E\\u3059\\u3050\\u4E0B\\u306B\\u3001\\u540C\\u3058\\u66F8\\u5F0F\\u306E\\u884C\\u3068\\u3057\\u3066\\u8DB3\\u3059\\u3002\n'
+    '    //   \\u305D\\u306E\\u884C\\u306E\\u6700\\u5F8C\\u307E\\u3067\\u5024\\u3092\\u66F8\\u304D\\u63DB\\u3048\\u3066\\u3044\\u308B\\u3068\\u304D\\u3060\\u3051\\uFF08\\u884C\\u306E\\u9014\\u4E2D\\u306B\\u6B21\\u306E\\u9805\\u76EE\\u304C\\u3042\\u308B\\u3068\\u304D\\u306F\\u8DB3\\u3055\\u306A\\u3044\\uFF09\n'
+    '    function addSnsLine(contents, edits, sns, afterField, used) {\n'
+    '        var target = null;\n'
+    '        for (var i = 0; i < edits.length; i++) {\n'
+    '            if (edits[i].field === afterField && edits[i].text !== "") target = edits[i];\n'
+    '        }\n'
+    '        if (!target) return;\n'
+    '        var lineEnd = target.end;\n'
+    '        while (lineEnd < contents.length && !LINE_BREAK.test(contents.charAt(lineEnd))) lineEnd++;\n'
+    '        if (trim(contents.substring(target.end, lineEnd)) !== "") return;\n'
+    '        target.text += "\\r" + String(sns).replace(/\\r\\n|\\n/g, "\\r");\n'
+    '        if (!inArray(used, "SNS")) used.push("SNS");\n'
+    '    }\n'
+    '\n'
     '    // \\u6C0F\\u540D\\u306E\\u66F8\\u304D\\u65B9\\uFF1A4\\u6587\\u5B57\\u306E\\u540D\\u524D\\uFF08\\u300C\\u5C71\\u7530\\u82B1\\u5B50\\u300D\\u300C\\u5C71\\u7530 \\u82B1\\u5B50\\u300D\\u306A\\u3069\\uFF09\\u3060\\u3051\\u30011\\u6587\\u5B57\\u305A\\u3064\\u7A7A\\u3051\\u3066\\u7B49\\u9593\\u9694\\u306B\\u3059\\u308B\n'
     '    //   \\uFF08\\u7A7A\\u3051\\u65B9\\u306F\\u3001\\u4EEE\\u306E\\u6587\\u5B57\\u304C\\u300C\\u9234\\u3000\\u6728\\u3000\\u592A\\u3000\\u90CE\\u300D\\u306E\\u3088\\u3046\\u306B\\u7A7A\\u3044\\u3066\\u3044\\u308C\\u3070\\u305D\\u308C\\u306B\\u5408\\u308F\\u305B\\u3001\\u306A\\u3051\\u308C\\u3070\\u5168\\u89D2\\u30B9\\u30DA\\u30FC\\u30B9\\uFF09\\u3002\n'
     '    //   \\u305D\\u308C\\u4EE5\\u5916\\u306E\\u6587\\u5B57\\u6570\\uFF08\\u300C\\u6797 \\u592A\\u90CE\\u300D\\u300C\\u4F50\\u3005\\u6728 \\u4E00\\u90CE\\u300D\\u306A\\u3069\\uFF09\\u3068\\u3001\\u82F1\\u5B57\\u306E\\u540D\\u524D\\u306F\\u3001\\u304A\\u5BA2\\u3055\\u3093\\u306E\\u5165\\u529B\\u3069\\u304A\\u308A\\u3002\n'
@@ -1290,6 +1327,7 @@ JOB_JSX = (
     '        applyEditsToString: applyEditsToString,\n'
     '        nameSpacing: nameSpacing,\n'
     '        titleSpacing: titleSpacing,\n'
+    '        inArray: inArray,\n'
     '        unusedFields: unusedFields,\n'
     '        hasLeftover: hasLeftover,\n'
     '        detectEncoding: detectEncoding,\n'
@@ -1764,14 +1802,31 @@ JOB_JSX = (
     '        return tf;\n'
     '    }\n'
     '\n'
+    '    // SNS \\u306E\\u884C\\u3092\\u8DB3\\u3059\\u5834\\u6240\\uFF1AE-mail \\u306E\\u4E0B\\u3002E-mail \\u304C\\u306A\\u3051\\u308C\\u3070 URL\\u30FBMobile\\u30FBFAX\\u30FBTEL \\u306E\\u4E0B\n'
+    '    var SNS_ANCHORS = ["\\u30E1\\u30FC\\u30EB", "URL", "\\u643A\\u5E2F", "FAX", "TEL"];\n'
+    '    var SNS_LABEL = { "\\u30E1\\u30FC\\u30EB": "E-mail", "\\u643A\\u5E2F": "Mobile" };\n'
+    '\n'
+    '    function snsAnchor(frames, rec) {\n'
+    '        var found = {};\n'
+    '        for (var f = 0; f < frames.length; f++) {\n'
+    '            try {\n'
+    '                var plan = C.planEdits(frames[f].contents, rec);\n'
+    '                for (var e = 0; e < plan.edits.length; e++) if (plan.edits[e].text !== "") found[plan.edits[e].field] = true;\n'
+    '            } catch (err) { /* \\u8AAD\\u3081\\u306A\\u3044\\u30C6\\u30AD\\u30B9\\u30C8\\u306F\\u98DB\\u3070\\u3059 */ }\n'
+    '        }\n'
+    '        for (var a = 0; a < SNS_ANCHORS.length; a++) if (found[SNS_ANCHORS[a]]) return SNS_ANCHORS[a];\n'
+    '        return null;\n'
+    '    }\n'
+    '\n'
     '    // \\u7F6E\\u304D\\u5834\\u6240\\u304C\\u306A\\u304B\\u3063\\u305F\\u9805\\u76EE\\u3092\\u3001\\u540D\\u523A\\u3067\\u306E\\u66F8\\u304D\\u65B9\\u306B\\u3057\\u30661\\u884C\\u306B\\u3059\\u308B\n'
     '    var FALLBACK_ORDER = ["\\u4F1A\\u793E\\u540D", "\\u4F1A\\u793E\\u540D\\u82F1\\u5B57", "\\u80A9\\u66F8", "\\u80A9\\u66F8\\u82F1\\u5B57", "\\u6C0F\\u540D", "\\u6C0F\\u540D\\u82F1\\u5B57", "\\u90F5\\u4FBF\\u756A\\u53F7",\n'
-    '                          "\\u4F4F\\u62401", "\\u4F4F\\u62402", "\\u82F1\\u5B57\\u4F4F\\u62401", "\\u82F1\\u5B57\\u4F4F\\u62402", "TEL", "FAX", "\\u643A\\u5E2F", "\\u30E1\\u30FC\\u30EB", "URL"];\n'
+    '                          "\\u4F4F\\u62401", "\\u4F4F\\u62402", "\\u82F1\\u5B57\\u4F4F\\u62401", "\\u82F1\\u5B57\\u4F4F\\u62402", "TEL", "FAX", "\\u643A\\u5E2F", "\\u30E1\\u30FC\\u30EB", "URL", "SNS"];\n'
     '    var FALLBACK_PREFIX = { "\\u90F5\\u4FBF\\u756A\\u53F7": "\\u3012", "TEL": "TEL\\uFF1A", "FAX": "FAX\\uFF1A", "\\u643A\\u5E2F": "Mobile\\uFF1A", "\\u30E1\\u30FC\\u30EB": "E-mail\\uFF1A" };\n'
     '\n'
     '    function fallbackLine(field, value, rec) {\n'
     '        if (field === "\\u6C0F\\u540D") return C.nameSpacing("", value);\n'
-    '        if (field === "\\u80A9\\u66F8") return C.titleSpacing(value);        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX\\uFF1A" + value;\n'
+    '        if (field === "\\u80A9\\u66F8") return C.titleSpacing(value);\n'
+    '        if (field === "SNS") return String(value).replace(/\\r\\n|\\n/g, "\\r");        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX\\uFF1A" + value;\n'
     '        return (FALLBACK_PREFIX[field] || "") + value;\n'
     '    }\n'
     '\n'
@@ -1791,6 +1846,7 @@ JOB_JSX = (
     '        for (var i = 0; i < doc.textFrames.length; i++) frames.push(doc.textFrames[i]);\n'
     '\n'
     '        var values = C.prepareValues(rec);\n'
+    '        var snsAfter = rec["SNS"] ? snsAnchor(frames, rec) : null;   // SNS \\u3092\\u5165\\u308C\\u308B\\u884C\\uFF08E-mail \\u306E\\u4E0B\\u306A\\u3069\\uFF09\n'
     '        var nameInfo = null, titleInfo = null, companyInfo = null;   // \\u3075\\u308A\\u304C\\u306A\\u30FB\\u90E8\\u7F72\\u540D\\u3092\\u7F6E\\u304F\\u5834\\u6240\\u306E\\u76EE\\u5370\n'
     '        var COMPANY_KEYS = ["\\u4F1A\\u793E\\u540D", "\\u4F1A\\u793E\\u540D_\\u5F8C", "\\u4F1A\\u793E\\u540D_\\u524D", "\\u4F1A\\u793E\\u540D\\u82F1\\u5B57", "(\\u305D\\u306E\\u307E\\u307E)"];\n'
     '        for (var f = 0; f < frames.length; f++) {\n'
@@ -1811,7 +1867,11 @@ JOB_JSX = (
     '                    used.push(tf.name);\n'
     '                } else {\n'
     '                    var before = tf.contents;\n'
-    '                    var plan = C.planEdits(before, rec);\n'
+    '                    var plan = C.planEdits(before, rec, { snsAfter: snsAfter });\n'
+    '                    if (snsAfter && C.inArray(plan.used, "SNS")) {\n'
+    '                        warnings.push("SNS \\u3092 " + (SNS_LABEL[snsAfter] || snsAfter) + " \\u306E\\u4E0B\\u306B\\u5165\\u308C\\u307E\\u3057\\u305F\\uFF08\\u4F4D\\u7F6E\\u3092\\u78BA\\u8A8D\\u3057\\u3066\\u304F\\u3060\\u3055\\u3044\\uFF09");\n'
+    '                        snsAfter = null;                                    // 1\\u304B\\u6240\\u3060\\u3051\n'
+    '                    }\n'
     '                    for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);\n'
     '                    if (!nameInfo && plan.fieldPos.hasOwnProperty("\\u6C0F\\u540D")) nameInfo = captureInfo(tf, plan.fieldPos["\\u6C0F\\u540D"], f);\n'
     '                    if (!titleInfo && plan.fieldPos.hasOwnProperty("\\u80A9\\u66F8")) titleInfo = captureInfo(tf, plan.fieldPos["\\u80A9\\u66F8"], f);\n'

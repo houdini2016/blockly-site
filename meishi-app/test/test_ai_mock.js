@@ -436,6 +436,26 @@ test("TEL・FAX・Mobile は見出しから値の最後までトラッキング 
     assert.deepStrictEqual(r3.t, r3.text.split("").map(function () { return 50; }));
 });
 
+test("SNS: E-mail の下（E-mail がなければ TEL の下、どこにもなければ中心から5cm上）", function () {
+    var doc = makeDoc([["TEL : 000-000-0000", [0, 0, 100, -10]],
+                       ["E-mail : ooooo@oooo.com\rhttp://www.0123456.jp/", [0, -20, 100, -40]]]);
+    var w = [];
+    AI.editDocument(doc, { "TEL": "03-1", "メール": "a@b.jp", "URL": "https://b.jp/", "SNS": "LINE：abc" }, w);
+    assert.strictEqual(doc.textFrames[0].contents, "TEL：03-1");                       // TEL の下には入れない
+    assert.strictEqual(doc.textFrames[1].contents, "E-mail：a@b.jp\rLINE：abc\rhttps://b.jp/");
+    assert.strictEqual(doc.added.length, 0);
+    assert.ok(w.join("\n").indexOf("SNS を E-mail の下") >= 0);
+
+    var doc2 = makeDoc([["TEL : 000-000-0000", [0, 0, 100, -10]]]);
+    AI.editDocument(doc2, { "TEL": "03-1", "メール": "", "SNS": "@abc" }, []);
+    assert.strictEqual(doc2.textFrames[0].contents, "TEL：03-1\r@abc");
+
+    var doc3 = makeDoc([["鈴木太郎", [0, 0, 100, -10]]]);
+    AI.editDocument(doc3, { "氏名": "山田 太郎", "SNS": "@abc" }, []);
+    assert.strictEqual(doc3.added.length, 1);
+    assert.ok(doc3.added[0].contents.indexOf("@abc") >= 0);
+});
+
 test("会社名は 13pt（LOGO・株式会社／〇〇商事の2行・英字の会社名）", function () {
     function sizes(before, rec) {
         var plan = C2.planEdits(before, rec);

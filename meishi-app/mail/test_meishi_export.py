@@ -156,6 +156,25 @@ class CardFromOrderTests(unittest.TestCase):
              "value": "〒824-0001\n福岡県行橋市行事1-1-1\nTEL：0930310490\nFAX：0930310491\nMobile：09012345678"}])
         self.assertEqual((c["TEL"], c["FAX"], c["携帯"]), ("0930-31-0490", "0930-31-0491", "090-1234-5678"))
 
+    def test_yahoo_social(self):
+        def card(*extra):
+            return M.card_from_order({"order_id": "1", "mall": "Yahoo!", "detail": ""}, [
+                {"label": "氏名", "value": "山田 太郎", "group": None},
+                {"label": "住所", "group": "address",
+                 "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nTEL：03-1111-2222\nE-mail：a@b.jp"}] + list(extra))
+        c = card({"label": "", "value": "ソーシャル（LINE/Facebookなど）：LINE ID：yamada123", "group": None})
+        self.assertEqual(c["SNS"], "LINE ID：yamada123")
+        self.assertEqual(card({"label": "", "value": "ソーシャル(LINE/Facebookなど)@yamada", "group": None})["SNS"], "@yamada")
+        # 2つ書かれていれば改行で並べる
+        c = card({"label": "", "value": "ソーシャル：Instagram @a", "group": None},
+                 {"label": "", "value": "SNS：Facebook b", "group": None})
+        self.assertEqual(c["SNS"], "Instagram @a\nFacebook b")
+        # 住所のまとまりに入っていても住所にしない
+        c = M.card_from_order({"order_id": "1", "detail": ""}, [
+            {"label": "住所", "group": "address",
+             "value": "〒100-0005\n東京都千代田区丸の内1-2-3\nソーシャル（LINE/Facebookなど）：LINE abc\nTEL：03-1111-2222"}])
+        self.assertEqual((c["住所1"], c["住所2"], c["SNS"]), ("東京都千代田区丸の内1-2-3", "", "LINE abc"))
+
     def test_write_csv(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "job", "meishi_job.csv")

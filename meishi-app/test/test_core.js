@@ -376,6 +376,22 @@ test("肩書: 2文字だけ半角スペースを入れる。それ以外は入�
                        "部 長山\u3000田\u3000花\u3000子");                    // 氏名は4文字なので空ける
 });
 
+test("SNS: E-mail の行のすぐ下に足す（行の途中に次の項目があれば足さない）", function () {
+    var rec = { "メール": "a@b.jp", "URL": "https://b.jp/", "SNS": "LINE：abc" };
+    var before = "E-mail : ooooo@oooo.com\rhttp://www.0123456.jp/";
+    var plan = C.planEdits(before, rec, { snsAfter: "メール" });
+    assert.strictEqual(C.applyEditsToString(before, plan.edits), "E-mail：a@b.jp\rLINE：abc\rhttps://b.jp/");
+    assert.ok(plan.used.indexOf("SNS") >= 0);
+    // 2つ書かれていれば2行
+    var two = C.planEdits("E-mail : ooooo@oooo.com", { "メール": "a@b.jp", "SNS": "Instagram @a\nFacebook b" }, { snsAfter: "メール" });
+    assert.strictEqual(C.applyEditsToString("E-mail : ooooo@oooo.com", two.edits), "E-mail：a@b.jp\rInstagram @a\rFacebook b");
+    // 「E-mail：…　URL：…」と同じ行に続くときは足さない（中心から5cm上へ）
+    var mid = C.planEdits("E-mail : ooooo@oooo.com　URL : http://www.0123456.jp/", rec, { snsAfter: "メール" });
+    assert.ok(mid.used.indexOf("SNS") < 0);
+    // snsAfter がなければ何もしない
+    assert.ok(C.planEdits(before, rec).used.indexOf("SNS") < 0);
+});
+
 test("文字コードの判定", function () {
     var utf8 = Buffer.from("注文番号", "utf8").toString("latin1");
     var sjis = String.fromCharCode(0x92, 0x8D, 0x95, 0xB6);  // 「注文」の Shift_JIS

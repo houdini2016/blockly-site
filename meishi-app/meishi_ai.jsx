@@ -461,14 +461,31 @@ var MeishiAI = (function () {
         return tf;
     }
 
+    // SNS の行を足す場所：E-mail の下。E-mail がなければ URL・Mobile・FAX・TEL の下
+    var SNS_ANCHORS = ["メール", "URL", "携帯", "FAX", "TEL"];
+    var SNS_LABEL = { "メール": "E-mail", "携帯": "Mobile" };
+
+    function snsAnchor(frames, rec) {
+        var found = {};
+        for (var f = 0; f < frames.length; f++) {
+            try {
+                var plan = C.planEdits(frames[f].contents, rec);
+                for (var e = 0; e < plan.edits.length; e++) if (plan.edits[e].text !== "") found[plan.edits[e].field] = true;
+            } catch (err) { /* 読めないテキストは飛ばす */ }
+        }
+        for (var a = 0; a < SNS_ANCHORS.length; a++) if (found[SNS_ANCHORS[a]]) return SNS_ANCHORS[a];
+        return null;
+    }
+
     // 置き場所がなかった項目を、名刺での書き方にして1行にする
     var FALLBACK_ORDER = ["会社名", "会社名英字", "肩書", "肩書英字", "氏名", "氏名英字", "郵便番号",
-                          "住所1", "住所2", "英字住所1", "英字住所2", "TEL", "FAX", "携帯", "メール", "URL"];
+                          "住所1", "住所2", "英字住所1", "英字住所2", "TEL", "FAX", "携帯", "メール", "URL", "SNS"];
     var FALLBACK_PREFIX = { "郵便番号": "〒", "TEL": "TEL：", "FAX": "FAX：", "携帯": "Mobile：", "メール": "E-mail：" };
 
     function fallbackLine(field, value, rec) {
         if (field === "氏名") return C.nameSpacing("", value);
-        if (field === "肩書") return C.titleSpacing(value);        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX：" + value;
+        if (field === "肩書") return C.titleSpacing(value);
+        if (field === "SNS") return String(value).replace(/\r\n|\n/g, "\r");        if (field === "TEL" && rec && rec.__telfax) return "TEL/FAX：" + value;
         return (FALLBACK_PREFIX[field] || "") + value;
     }
 
@@ -488,6 +505,7 @@ var MeishiAI = (function () {
         for (var i = 0; i < doc.textFrames.length; i++) frames.push(doc.textFrames[i]);
 
         var values = C.prepareValues(rec);
+        var snsAfter = rec["SNS"] ? snsAnchor(frames, rec) : null;   // SNS を入れる行（E-mail の下など）
         var nameInfo = null, titleInfo = null, companyInfo = null;   // ふりがな・部署名を置く場所の目印
         var COMPANY_KEYS = ["会社名", "会社名_後", "会社名_前", "会社名英字", "(そのまま)"];
         for (var f = 0; f < frames.length; f++) {
@@ -508,7 +526,11 @@ var MeishiAI = (function () {
                     used.push(tf.name);
                 } else {
                     var before = tf.contents;
-                    var plan = C.planEdits(before, rec);
+                    var plan = C.planEdits(before, rec, { snsAfter: snsAfter });
+                    if (snsAfter && C.inArray(plan.used, "SNS")) {
+                        warnings.push("SNS を " + (SNS_LABEL[snsAfter] || snsAfter) + " の下に入れました（位置を確認してください）");
+                        snsAfter = null;                                    // 1か所だけ
+                    }
                     for (var u = 0; u < plan.used.length; u++) used.push(plan.used[u]);
                     if (!nameInfo && plan.fieldPos.hasOwnProperty("氏名")) nameInfo = captureInfo(tf, plan.fieldPos["氏名"], f);
                     if (!titleInfo && plan.fieldPos.hasOwnProperty("肩書")) titleInfo = captureInfo(tf, plan.fieldPos["肩書"], f);

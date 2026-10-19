@@ -33,6 +33,7 @@ var MeishiCore = (function () {
         "携帯":       ["携帯", "携帯電話", "Mobile"],
         "メール":     ["メール", "メールアドレス", "E-mail", "Email"],
         "URL":        ["URL", "ホームページ", "Webサイト"],
+        "SNS":        ["SNS", "ソーシャル"],
         // 以下は名刺に直接は入らない項目（処理結果の「要確認」に表示する）
         "モール":     ["モール"],
         "ふりがな":   ["ふりがな", "フリガナ"],
@@ -372,6 +373,7 @@ var MeishiCore = (function () {
                 break;
             }
         }
+        if (opts.snsAfter && values["SNS"]) addSnsLine(contents, edits, values["SNS"], opts.snsAfter, used);
         edits.sort(function (a, b) { return a.start - b.start; });
         return { edits: edits, used: used, leftoverRemoved: leftoverRemoved, leftover: leftover, notes: notes,
                  fieldPos: fieldPos };
@@ -595,6 +597,21 @@ var MeishiCore = (function () {
         return edits;
     }
 
+    // SNS（Yahoo! のソーシャル）は、その項目（ふつうは E-mail）の行のすぐ下に、同じ書式の行として足す。
+    //   その行の最後まで値を書き換えているときだけ（行の途中に次の項目があるときは足さない）
+    function addSnsLine(contents, edits, sns, afterField, used) {
+        var target = null;
+        for (var i = 0; i < edits.length; i++) {
+            if (edits[i].field === afterField && edits[i].text !== "") target = edits[i];
+        }
+        if (!target) return;
+        var lineEnd = target.end;
+        while (lineEnd < contents.length && !LINE_BREAK.test(contents.charAt(lineEnd))) lineEnd++;
+        if (trim(contents.substring(target.end, lineEnd)) !== "") return;
+        target.text += "\r" + String(sns).replace(/\r\n|\n/g, "\r");
+        if (!inArray(used, "SNS")) used.push("SNS");
+    }
+
     // 氏名の書き方：4文字の名前（「山田花子」「山田 花子」など）だけ、1文字ずつ空けて等間隔にする
     //   （空け方は、仮の文字が「鈴　木　太　郎」のように空いていればそれに合わせ、なければ全角スペース）。
     //   それ以外の文字数（「林 太郎」「佐々木 一郎」など）と、英字の名前は、お客さんの入力どおり。
@@ -731,6 +748,7 @@ var MeishiCore = (function () {
         applyEditsToString: applyEditsToString,
         nameSpacing: nameSpacing,
         titleSpacing: titleSpacing,
+        inArray: inArray,
         unusedFields: unusedFields,
         hasLeftover: hasLeftover,
         detectEncoding: detectEncoding,
