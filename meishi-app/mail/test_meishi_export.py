@@ -240,6 +240,15 @@ class RemarkTests(unittest.TestCase):
     BP = ("【不明点など確認時のご連絡先 電話番号やアドレス】\n\n"
           "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n\n" + "-" * 69)
 
+    def test_customer_text_after_asterisks_kept(self):
+        # お客さんが区切り線を「***」に書き換えて、その下に名刺の内容を書いたメール
+        body = ("【不明点など確認時のご連絡先 電話番号やアドレス】\nmiurainc@example.jp\n"
+                "★商品ページで入力できなかった項目やご要望等ございましたら、こちらにご入力下さい。\n"
+                "***********\n社名／店名など【株式会社 MIURA】\nMobile: 080-1845-1211\n\n" + "-" * 69)
+        c = M.card_from_order({"order_id": "1"}, [{"label": "", "value": "[備考]\n" + body, "group": None}])
+        self.assertTrue(c["備考"].endswith("Mobile: 080-1845-1211"))   # 最後の区切り線だけ取る
+        self.assertIn("***********\n社名／店名など【株式会社 MIURA】", c["備考"])
+
     def test_boilerplate_only_is_dropped(self):
         c = M.card_from_order({"order_id": "1"}, [{"label": "", "value": "[備考]\n" + self.BP, "group": None}])
         self.assertEqual(c["備考"], "")

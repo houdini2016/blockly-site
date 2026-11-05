@@ -402,6 +402,8 @@ def card_from_order(order, items):
     if notes:
         card["備考"] = "\n".join(filter(None, [card["備考"]] + notes))
     _url_from_remark(card)
+    # メールの区切り線（備考の最後に付いてくる「-----」の行）は名刺に入れない
+    card["備考"] = re.sub(r"(?:\n[ \t\u3000]*[-‐－─━=＝*＊_]{4,}[ \t\u3000]*)+\s*$", "", card["備考"].rstrip()).rstrip()
     if not remark_has_content(card["備考"]):
         card["備考"] = ""   # お店の案内文だけなら流し込まない
     if not card["氏名"]:
